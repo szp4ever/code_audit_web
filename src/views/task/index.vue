@@ -67,6 +67,7 @@ const enablePolling = ref(true) // 是否启用轮询
 
 // 本地维护的任务进度（不依赖后端）
 const taskProgressMap = ref<Map<string | number, number>>(new Map())
+const taskVulnerabilityCountMap = ref<Map<string | number, number>>(new Map())
 
 const pagination = ref({
   page: 1,
@@ -201,7 +202,26 @@ const taskTypeTagType = (taskType: TaskType) => {
   }
   return map[taskType] || 'default'
 }
+// 获取并缓存任务漏洞数量
+const getTaskVulnerabilityCount = async (taskId: string | number | null) => {
+  if (!taskId) return 0
 
+  // 优先从缓存获取，避免重复请求
+  if (taskVulnerabilityCountMap.value.has(taskId)) {
+    return taskVulnerabilityCountMap.value.get(taskId)!
+  }
+
+  try {
+    const response = await getTaskVulnerabilities(taskId)
+    const count = response?.code === 200 ? (response.data?.totalCount || 0) : 0
+    taskVulnerabilityCountMap.value.set(taskId, count)
+    return count
+  } catch (error) {
+    console.error(`获取任务${taskId}漏洞数量失败:`, error)
+    taskVulnerabilityCountMap.value.set(taskId, 0)
+    return 0
+  }
+}
 // 加载项目列表
 const loadProjects = async () => {
   try {
@@ -276,39 +296,28 @@ const loadTasks = async () => {
 
     console.log('请求参数:', params)
     const response = await fetchTaskList(params)
-    // 响应拦截器已经返回了 res.data，所以 response 就是后端返回的数据结构
-    // 后端可能返回: { code: 200, data: { rows: [...], total: 10 } } 或 { code: 200, data: [...] }
     if (response && response.code === 200) {
-      // 处理不同的数据结构
       let taskList: Task[] = []
       if (Array.isArray(response.data)) {
-        // 如果 data 直接是数组
         taskList = response.data
       } else if (response.data?.rows) {
-        // 如果 data 是对象，包含 rows 字段
         taskList = response.data.rows
       } else if (response.data?.list) {
-        // 如果 data 是对象，包含 list 字段
         taskList = response.data.list
       } else if (response.rows) {
-        // 如果响应直接包含 rows 字段
         taskList = response.rows
       } else if (response.list) {
-        // 如果响应直接包含 list 字段
         taskList = response.list
       }
 
-      // 如果有项目筛选，进行客户端过滤（作为兜底，确保只显示对应项目的任务）
+      // 应用客户端筛选
       if (filterProjectId.value) {
         taskList = taskList.filter((task: Task) => {
           const taskProjectId = String(task.projectId || '')
           const filterId = String(filterProjectId.value || '')
           return taskProjectId === filterId
         })
-        console.log('客户端筛选后的任务数量:', taskList.length, '筛选项目ID:', filterProjectId.value)
       }
-
-      // 如果有搜索关键词，进行本地过滤
       if (searchKeyword.value) {
         const keyword = searchKeyword.value.toLowerCase()
         taskList = taskList.filter((task: Task) =>
@@ -317,26 +326,26 @@ const loadTasks = async () => {
         )
       }
 
-      // 初始化新任务的进度
+      // 初始化任务进度
       taskList.forEach((task: Task) => {
         if (task.id && (task.status === TaskStatus.IN_PROGRESS || task.status === TaskStatus.PENDING)) {
-          // 如果是新任务（之前没有进度），初始化为0
           if (!taskProgressMap.value.has(task.id)) {
             taskProgressMap.value.set(task.id, 0)
           }
-        } else if (task.id && task.status === TaskStatus.COMPLETED) {
-          // 任务完成，清除进度
-          taskProgressMap.value.delete(task.id)
-        } else if (task.id && task.status === TaskStatus.CANCELLED) {
-          // 任务取消，清除进度
+        } else if (task.id && (task.status === TaskStatus.COMPLETED || task.status === TaskStatus.CANCELLED)) {
           taskProgressMap.value.delete(task.id)
         }
       })
-      
+
       tasks.value = taskList
       total.value = response.data?.total || response.total || taskList.length
-      
-      // 检查是否有进行中的任务，如果没有则停止轮询
+
+      // 批量预加载漏洞数量（关键修复：提前加载，避免渲染时异步）
+      await Promise.all(
+        taskList.map(task => task.id ? getTaskVulnerabilityCount(task.id) : Promise.resolve(0))
+      )
+
+      // 轮询和进度定时器逻辑
       const hasInProgressTasks = taskList.some(
         task => task.status === TaskStatus.IN_PROGRESS || task.status === TaskStatus.PENDING
       )
@@ -347,16 +356,13 @@ const loadTasks = async () => {
         startPolling()
         startProgressTimer()
       } else if (hasInProgressTasks && !progressTimer.value) {
-        // 如果有进行中的任务但进度定时器未启动，启动它
         startProgressTimer()
       }
     } else {
-      // 如果接口不存在，使用本地存储
       loadTasksFromLocal()
     }
   } catch (error) {
     console.error('加载任务列表失败:', error)
-    // 如果接口不存在，使用本地存储
     loadTasksFromLocal()
   } finally {
     loading.value = false
@@ -530,7 +536,7 @@ const handleFolderChange = async (event: Event) => {
     for (let i = 0; i < files.length; i++) {
       const file = files[i]
       fileArray.push(file)
-      
+
       // 获取相对路径（相对于文件夹根目录）
       // webkitRelativePath 格式：folder/subfolder/file.txt
       const relativePath = file.webkitRelativePath || file.name
@@ -539,10 +545,10 @@ const handleFolderChange = async (event: Event) => {
 
     // 调用批量上传接口
     const response = await uploadTaskFilesBatch(fileArray, relativePaths)
-    
+
     if (response && (response.code === 200 || response.success)) {
       const responseFiles = response.data || []
-      
+
       // 将返回的文件添加到已上传文件列表
       responseFiles.forEach((fileData: any) => {
         const newFile: TaskFile = {
@@ -553,13 +559,13 @@ const handleFolderChange = async (event: Event) => {
           type: fileData.type || fileData.fileType,
           uploadTime: fileData.uploadTime || new Date().toISOString()
         }
-        
+
         // 避免重复添加
         if (!uploadedFiles.value.find(f => f.id === newFile.id && f.name === newFile.name)) {
           uploadedFiles.value.push(newFile)
         }
       })
-      
+
       currentTask.value.inputFiles = [...uploadedFiles.value]
       ms.success(`成功上传 ${responseFiles.length} 个文件`)
     } else {
@@ -744,19 +750,19 @@ const handleDownloadFile = async (file: TaskFile) => {
 // 获取任务进度（本地维护）
 const getTaskProgress = (task: Task): number => {
   if (!task.id) return 0
-  
+
   // 如果任务已完成，返回100
   if (task.status === TaskStatus.COMPLETED) {
     taskProgressMap.value.delete(task.id)
     return 100
   }
-  
+
   // 如果任务已取消，清除进度
   if (task.status === TaskStatus.CANCELLED) {
     taskProgressMap.value.delete(task.id)
     return 0
   }
-  
+
   // 如果任务在进行中或待处理，返回本地维护的进度
   if (task.status === TaskStatus.IN_PROGRESS || task.status === TaskStatus.PENDING) {
     if (!taskProgressMap.value.has(task.id)) {
@@ -764,7 +770,7 @@ const getTaskProgress = (task: Task): number => {
     }
     return taskProgressMap.value.get(task.id) || 0
   }
-  
+
   return 0
 }
 
@@ -773,7 +779,7 @@ const getProgressText = (progress: number, status?: TaskStatus): string => {
   if (status === TaskStatus.COMPLETED) {
     return '已完成'
   }
-  
+
   if (progress < 30) {
     return '正在分析代码'
   } else if (progress < 60) {
@@ -790,7 +796,7 @@ const startProgressTimer = () => {
   if (progressTimer.value) {
     clearInterval(progressTimer.value)
   }
-  
+
   progressTimer.value = setInterval(() => {
     // 遍历所有进行中的任务，递增进度
     tasks.value.forEach(task => {
@@ -845,7 +851,7 @@ const stopPolling = () => {
 // 中断任务
 const handleCancelTask = async (task: Task) => {
   if (!task.id) return
-  
+
   try {
     const response = await cancelTask(task.id)
     if (response && response.code === 200) {
@@ -863,7 +869,7 @@ const handleCancelTask = async (task: Task) => {
 // 重试任务
 const handleRetryTask = async (task: Task) => {
   if (!task.id) return
-  
+
   try {
     const response = await retryTask(task.id)
     if (response && response.code === 200) {
@@ -913,12 +919,12 @@ const openVulnerabilityModal = async (task: Task) => {
     ms.warning('任务ID不存在')
     return
   }
-  
+
   currentTaskId.value = task.id
   showVulnerabilityModal.value = true
   vulnerabilityLoading.value = true
   vulnerabilityDetail.value = null
-  
+
   try {
     const response = await getTaskVulnerabilities(task.id)
     if (response && response.code === 200) {
@@ -998,10 +1004,10 @@ const columns = [
   {
     title: '状态/进度',
     key: 'status',
-    width: 200,
+    width: 100,
     render: (row: Task) => {
       if (!row.status) return '-'
-      
+
       // 如果已完成，显示已完成标签
       if (row.status === TaskStatus.COMPLETED) {
         return h(NTag, {
@@ -1009,7 +1015,7 @@ const columns = [
           size: 'small'
         }, { default: () => '已完成' })
       }
-      
+
       // 如果已取消，显示已取消标签
       if (row.status === TaskStatus.CANCELLED) {
         return h(NTag, {
@@ -1017,11 +1023,11 @@ const columns = [
           size: 'small'
         }, { default: () => '已取消' })
       }
-      
+
       // 如果进行中或待处理，显示进度条（使用本地维护的进度）
       const progress = getTaskProgress(row)
       const progressText = getProgressText(progress, row.status)
-      
+
       return h('div', { style: 'display: flex; flex-direction: column; gap: 4px; width: 100%' }, [
         h(NProgress, {
           percentage: progress,
@@ -1033,6 +1039,15 @@ const columns = [
       ])
     }
   },
+	{
+		title: '漏洞总数',
+		key: 'vulnerability_num',
+		width: 100,
+		render: (row: Task) => {
+    	const count = taskVulnerabilityCountMap.value.get(row.id || '') || 0
+    	return h('span', { style: { color: '#D03050', fontWeight: '800' } }, count)
+		}
+	},
   {
     title: '上传文件',
     key: 'inputFiles',
@@ -1078,7 +1093,7 @@ const columns = [
     width: 320,
     render: (row: Task) => {
       const buttons: any[] = []
-      
+
       // 编辑按钮
       buttons.push(
         h(NButton, {
@@ -1090,7 +1105,7 @@ const columns = [
           default: () => '编辑'
         })
       )
-      
+
       // 中断按钮（仅在进行中或待处理时显示）
       if (row.status === TaskStatus.IN_PROGRESS || row.status === TaskStatus.PENDING) {
         buttons.push(
@@ -1109,11 +1124,11 @@ const columns = [
           })
         )
       }
-      
+
       // 重试按钮（在非进行中/待处理状态时显示，允许重新执行任务）
       // 包括：已完成、已取消，以及任何非进行中的状态
-      if (row.status && 
-          row.status !== TaskStatus.IN_PROGRESS && 
+      if (row.status &&
+          row.status !== TaskStatus.IN_PROGRESS &&
           row.status !== TaskStatus.PENDING) {
         buttons.push(
           h(NButton, {
@@ -1126,7 +1141,7 @@ const columns = [
           })
         )
       }
-      
+
       // 删除按钮
       buttons.push(
         h(NPopconfirm, {
@@ -1143,7 +1158,7 @@ const columns = [
           default: () => '确定要删除这个任务吗？'
         })
       )
-      
+
       return h(NSpace, { size: 'small' }, {
         default: () => buttons
       })
@@ -1192,7 +1207,7 @@ onMounted(async () => {
   await loadProjects()
   // 加载任务列表
   await loadTasks()
-  
+
   // 启动定时轮询
   startPolling()
   // 启动进度递增定时器
@@ -1350,8 +1365,8 @@ onUnmounted(() => {
                     上传文件
                   </NButton>
                 </NUpload>
-                <NButton 
-                  type="default" 
+                <NButton
+                  type="default"
                   :loading="isUploadingFolder"
                   @click="handleFolderUpload"
                 >
@@ -1370,7 +1385,7 @@ onUnmounted(() => {
                   @change="handleFolderChange"
                 />
               </NSpace>
-              
+
               <!-- 已上传文件列表 -->
               <div v-if="uploadedFiles.length > 0" class="mt-2">
                 <NText depth="3" style="font-size: 12px">已上传文件：</NText>
@@ -1470,7 +1485,7 @@ onUnmounted(() => {
                       </div>
                       <NText v-if="vuln.category" depth="3" style="font-size: 12px">{{ vuln.category }}</NText>
                     </div>
-                    
+
                     <!-- 漏洞内容 -->
                     <div class="vulnerability-content">
                       <!-- 漏洞描述 -->
