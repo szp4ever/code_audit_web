@@ -44,6 +44,7 @@ export interface Task {
   priority: TaskPriority
   taskType: TaskType  // 任务类型（创建时选择）
   status?: TaskStatus  // 任务状态（由后端返回，不在创建时选择）
+  progress?: number    // 任务进度（0-100）
   inputFiles?: TaskFile[]  // 上传的文件
   outputFiles?: TaskFile[] // 任务完成返回的文件
   createdAt?: string
@@ -158,3 +159,88 @@ export function getTaskFileUploadUrl() {
   return `${import.meta.env.VITE_GLOB_API_URL}/task/file/upload`
 }
 
+// 批量上传任务文件（支持文件夹上传，包含相对路径）
+export function uploadTaskFilesBatch(files: File[], relativePaths?: string[], taskId?: string | number) {
+  const formData = new FormData()
+  
+  // 添加所有文件
+  files.forEach((file) => {
+    formData.append('files', file)
+  })
+  
+  // 添加相对路径数组（如果提供）
+  if (relativePaths && relativePaths.length > 0) {
+    relativePaths.forEach((path) => {
+      formData.append('relativePaths', path)
+    })
+  }
+  
+  // 添加任务ID（如果提供）
+  if (taskId) {
+    formData.append('taskId', String(taskId))
+  }
+  
+  return request({
+    url: '/task/file/uploadBatch',
+    method: 'post',
+    data: formData,
+  } as any)
+}
+
+// 漏洞严重程度枚举（使用中文值）
+export enum VulnerabilitySeverity {
+  LOW = '低',           // 低
+  MEDIUM = '中',        // 中
+  HIGH = '高',          // 高
+  CRITICAL = '严重'     // 严重
+}
+
+// 漏洞信息接口定义
+export interface Vulnerability {
+  id?: number | string
+  taskId?: number | string
+  title: string                    // 漏洞标题
+  description: string              // 漏洞描述
+  severity: VulnerabilitySeverity | string  // 漏洞严重程度（支持中文值）
+  filePath?: string                // 漏洞所在文件路径
+  lineNumber?: number              // 漏洞所在行号
+  codeSnippet?: string             // 相关代码片段
+  fixSuggestion: string            // 修复建议
+  category?: string                // 漏洞分类
+  createdAt?: string
+}
+
+// 任务漏洞详情响应接口
+export interface TaskVulnerabilityDetail {
+  taskId: number | string
+  taskTitle: string
+  totalCount: number              // 漏洞总数
+  severityCount?: {                // 按严重程度统计（使用中文键）
+    [key: string]: number          // '严重' | '高' | '中' | '低'
+  }
+  vulnerabilities: Vulnerability[] // 漏洞列表
+}
+
+// 获取任务漏洞详情
+export function getTaskVulnerabilities(taskId: number | string) {
+  return request({
+    url: `/task/vulnerabilities/${taskId}`,
+    method: 'get',
+  } as any)
+}
+
+// 中断任务
+export function cancelTask(taskId: number | string) {
+  return request({
+    url: `/task/cancel/${taskId}`,
+    method: 'post',
+  } as any)
+}
+
+// 重试任务
+export function retryTask(taskId: number | string) {
+  return request({
+    url: `/task/retry/${taskId}`,
+    method: 'post',
+  } as any)
+}

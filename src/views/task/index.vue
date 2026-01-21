@@ -1,5 +1,5 @@
 <script setup lang='ts'>
-import { ref, computed, onMounted, h } from 'vue'
+import { ref, computed, onMounted, onUnmounted, watch, h } from 'vue'
 import {
   NButton,
   NInput,
@@ -23,12 +23,16 @@ import {
   UploadFileInfo,
   UploadInst,
   NText,
-  NP
+  NP,
+  NDivider,
+  NSpin,
+  NScrollbar,
+  NProgress
 } from 'naive-ui'
 import { SvgIcon } from '@/components/common'
-import { createTask, fetchTaskList, updateTask, deleteTask, downloadTaskFile, getTaskFileUploadUrl, Task, TaskPriority, TaskStatus, TaskType, TaskFile } from '@/api/task'
+import { createTask, fetchTaskList, updateTask, deleteTask, downloadTaskFile, getTaskFileUploadUrl, uploadTaskFilesBatch, Task, TaskPriority, TaskStatus, TaskType, TaskFile, getTaskVulnerabilities, TaskVulnerabilityDetail, Vulnerability, VulnerabilitySeverity, cancelTask, retryTask } from '@/api/task'
 import { fetchProjectList, Project } from '@/api/project'
-import { AddOutline, TrashOutline, CreateOutline, DownloadOutline, ArrowBackOutline } from '@vicons/ionicons5'
+import { AddOutline, TrashOutline, CreateOutline, DownloadOutline, ArrowBackOutline, StopOutline, RefreshOutline } from '@vicons/ionicons5'
 import { getToken } from '@/store/modules/auth/helper'
 import { useRoute, useRouter } from 'vue-router'
 
@@ -46,13 +50,24 @@ const selectedProjectId = ref<string | number | null>(null)
 
 // 文件上传相关
 const uploadRef = ref<UploadInst | null>(null)
+const folderUploadInputRef = ref<HTMLInputElement | null>(null)
 const uploadedFiles = ref<TaskFile[]>([])
 const uploadAction = getTaskFileUploadUrl()
+const isUploadingFolder = ref(false)
 
 // 任务列表
 const tasks = ref<Task[]>([])
 const loading = ref(false)
 const total = ref(0)
+const pollingTimer = ref<NodeJS.Timeout | null>(null)
+const progressTimer = ref<NodeJS.Timeout | null>(null) // 进度递增定时器
+const pollingInterval = ref(5000) // 默认5秒轮询一次
+const progressInterval = ref(1000) // 进度每1秒递增一次
+const enablePolling = ref(true) // 是否启用轮询
+
+// 本地维护的任务进度（不依赖后端）
+const taskProgressMap = ref<Map<string | number, number>>(new Map())
+
 const pagination = ref({
   page: 1,
   pageSize: 10,
@@ -87,6 +102,12 @@ const currentTask = ref<Task>({
   tags: [],
   inputFiles: []
 })
+
+// 漏洞详情弹窗相关
+const showVulnerabilityModal = ref(false)
+const vulnerabilityLoading = ref(false)
+const vulnerabilityDetail = ref<TaskVulnerabilityDetail | null>(null)
+const currentTaskId = ref<number | string | null>(null)
 
 // 优先级选项
 const priorityOptions = [
@@ -231,13 +252,6 @@ const loadProjects = async () => {
   }
 }
 
-// 获取项目名称
-const getProjectName = (projectId?: string | number) => {
-  if (!projectId) return '-'
-  const project = projects.value.find(p => p.id === projectId)
-  return project?.name || '-'
-}
-
 // 加载任务列表
 const loadTasks = async () => {
   try {
@@ -257,8 +271,10 @@ const loadTasks = async () => {
     }
     if (filterProjectId.value) {
       params.projectId = filterProjectId.value
+      console.log('筛选项目ID:', filterProjectId.value)
     }
 
+    console.log('请求参数:', params)
     const response = await fetchTaskList(params)
     // 响应拦截器已经返回了 res.data，所以 response 就是后端返回的数据结构
     // 后端可能返回: { code: 200, data: { rows: [...], total: 10 } } 或 { code: 200, data: [...] }
@@ -282,6 +298,16 @@ const loadTasks = async () => {
         taskList = response.list
       }
 
+      // 如果有项目筛选，进行客户端过滤（作为兜底，确保只显示对应项目的任务）
+      if (filterProjectId.value) {
+        taskList = taskList.filter((task: Task) => {
+          const taskProjectId = String(task.projectId || '')
+          const filterId = String(filterProjectId.value || '')
+          return taskProjectId === filterId
+        })
+        console.log('客户端筛选后的任务数量:', taskList.length, '筛选项目ID:', filterProjectId.value)
+      }
+
       // 如果有搜索关键词，进行本地过滤
       if (searchKeyword.value) {
         const keyword = searchKeyword.value.toLowerCase()
@@ -291,8 +317,39 @@ const loadTasks = async () => {
         )
       }
 
+      // 初始化新任务的进度
+      taskList.forEach((task: Task) => {
+        if (task.id && (task.status === TaskStatus.IN_PROGRESS || task.status === TaskStatus.PENDING)) {
+          // 如果是新任务（之前没有进度），初始化为0
+          if (!taskProgressMap.value.has(task.id)) {
+            taskProgressMap.value.set(task.id, 0)
+          }
+        } else if (task.id && task.status === TaskStatus.COMPLETED) {
+          // 任务完成，清除进度
+          taskProgressMap.value.delete(task.id)
+        } else if (task.id && task.status === TaskStatus.CANCELLED) {
+          // 任务取消，清除进度
+          taskProgressMap.value.delete(task.id)
+        }
+      })
+      
       tasks.value = taskList
       total.value = response.data?.total || response.total || taskList.length
+      
+      // 检查是否有进行中的任务，如果没有则停止轮询
+      const hasInProgressTasks = taskList.some(
+        task => task.status === TaskStatus.IN_PROGRESS || task.status === TaskStatus.PENDING
+      )
+      if (!hasInProgressTasks && pollingTimer.value) {
+        stopPolling()
+        stopProgressTimer()
+      } else if (hasInProgressTasks && !pollingTimer.value && enablePolling.value) {
+        startPolling()
+        startProgressTimer()
+      } else if (hasInProgressTasks && !progressTimer.value) {
+        // 如果有进行中的任务但进度定时器未启动，启动它
+        startProgressTimer()
+      }
     } else {
       // 如果接口不存在，使用本地存储
       loadTasksFromLocal()
@@ -446,6 +503,78 @@ const handleBeforeUpload = () => {
 // 文件列表变化处理
 const handleFileListChange = (fileList: UploadFileInfo[]) => {
   // 可以在这里处理文件列表变化
+}
+
+// 处理文件夹上传
+const handleFolderUpload = () => {
+  if (folderUploadInputRef.value) {
+    folderUploadInputRef.value.click()
+  }
+}
+
+// 文件夹选择变化处理
+const handleFolderChange = async (event: Event) => {
+  const input = event.target as HTMLInputElement
+  const files = input.files
+  if (!files || files.length === 0) {
+    return
+  }
+
+  isUploadingFolder.value = true
+
+  try {
+    const fileArray: File[] = []
+    const relativePaths: string[] = []
+
+    // 读取所有文件及其相对路径
+    for (let i = 0; i < files.length; i++) {
+      const file = files[i]
+      fileArray.push(file)
+      
+      // 获取相对路径（相对于文件夹根目录）
+      // webkitRelativePath 格式：folder/subfolder/file.txt
+      const relativePath = file.webkitRelativePath || file.name
+      relativePaths.push(relativePath)
+    }
+
+    // 调用批量上传接口
+    const response = await uploadTaskFilesBatch(fileArray, relativePaths)
+    
+    if (response && (response.code === 200 || response.success)) {
+      const responseFiles = response.data || []
+      
+      // 将返回的文件添加到已上传文件列表
+      responseFiles.forEach((fileData: any) => {
+        const newFile: TaskFile = {
+          id: fileData.id || fileData.uuid || fileData.fileId || `file_${Date.now()}_${Math.random()}`,
+          name: fileData.name || fileData.fileName,
+          url: fileData.url || fileData.path || fileData.fileUrl || fileData.downloadUrl || '',
+          size: fileData.size,
+          type: fileData.type || fileData.fileType,
+          uploadTime: fileData.uploadTime || new Date().toISOString()
+        }
+        
+        // 避免重复添加
+        if (!uploadedFiles.value.find(f => f.id === newFile.id && f.name === newFile.name)) {
+          uploadedFiles.value.push(newFile)
+        }
+      })
+      
+      currentTask.value.inputFiles = [...uploadedFiles.value]
+      ms.success(`成功上传 ${responseFiles.length} 个文件`)
+    } else {
+      ms.error(response?.msg || '文件夹上传失败')
+    }
+  } catch (error: any) {
+    console.error('文件夹上传失败:', error)
+    ms.error(error.message || '文件夹上传失败')
+  } finally {
+    isUploadingFolder.value = false
+    // 清空input，以便可以再次选择同一个文件夹
+    if (input) {
+      input.value = ''
+    }
+  }
 }
 
 // 保存任务
@@ -612,26 +741,227 @@ const handleDownloadFile = async (file: TaskFile) => {
 
 // 注意：任务状态由后端管理，不在前端修改
 
+// 获取任务进度（本地维护）
+const getTaskProgress = (task: Task): number => {
+  if (!task.id) return 0
+  
+  // 如果任务已完成，返回100
+  if (task.status === TaskStatus.COMPLETED) {
+    taskProgressMap.value.delete(task.id)
+    return 100
+  }
+  
+  // 如果任务已取消，清除进度
+  if (task.status === TaskStatus.CANCELLED) {
+    taskProgressMap.value.delete(task.id)
+    return 0
+  }
+  
+  // 如果任务在进行中或待处理，返回本地维护的进度
+  if (task.status === TaskStatus.IN_PROGRESS || task.status === TaskStatus.PENDING) {
+    if (!taskProgressMap.value.has(task.id)) {
+      taskProgressMap.value.set(task.id, 0)
+    }
+    return taskProgressMap.value.get(task.id) || 0
+  }
+  
+  return 0
+}
+
+// 获取进度文本
+const getProgressText = (progress: number, status?: TaskStatus): string => {
+  if (status === TaskStatus.COMPLETED) {
+    return '已完成'
+  }
+  
+  if (progress < 30) {
+    return '正在分析代码'
+  } else if (progress < 60) {
+    return '调用智能体分析'
+  } else if (progress < 99) {
+    return '生成报告'
+  } else {
+    return '即将完成'
+  }
+}
+
+// 启动进度递增定时器
+const startProgressTimer = () => {
+  if (progressTimer.value) {
+    clearInterval(progressTimer.value)
+  }
+  
+  progressTimer.value = setInterval(() => {
+    // 遍历所有进行中的任务，递增进度
+    tasks.value.forEach(task => {
+      if (task.id && (task.status === TaskStatus.IN_PROGRESS || task.status === TaskStatus.PENDING)) {
+        const currentProgress = taskProgressMap.value.get(task.id) || 0
+        // 进度从0递增到99，每次递增1-3（随机，让进度更自然）
+        if (currentProgress < 99) {
+          const increment = Math.random() * 2 + 1 // 1-3之间的随机增量
+          const newProgress = Math.min(99, Math.floor(currentProgress + increment))
+          taskProgressMap.value.set(task.id, newProgress)
+        }
+      }
+    })
+  }, progressInterval.value)
+}
+
+// 停止进度递增定时器
+const stopProgressTimer = () => {
+  if (progressTimer.value) {
+    clearInterval(progressTimer.value)
+    progressTimer.value = null
+  }
+}
+
+// 启动定时轮询
+const startPolling = () => {
+  if (pollingTimer.value) {
+    clearInterval(pollingTimer.value)
+  }
+  if (enablePolling.value) {
+    pollingTimer.value = setInterval(() => {
+      // 只轮询进行中的任务
+      const hasInProgressTasks = tasks.value.some(
+        task => task.status === TaskStatus.IN_PROGRESS || task.status === TaskStatus.PENDING
+      )
+      if (hasInProgressTasks) {
+        loadTasks()
+      }
+    }, pollingInterval.value)
+  }
+}
+
+// 停止定时轮询
+const stopPolling = () => {
+  if (pollingTimer.value) {
+    clearInterval(pollingTimer.value)
+    pollingTimer.value = null
+  }
+  stopProgressTimer()
+}
+
+// 中断任务
+const handleCancelTask = async (task: Task) => {
+  if (!task.id) return
+  
+  try {
+    const response = await cancelTask(task.id)
+    if (response && response.code === 200) {
+      ms.success('任务已中断')
+      await loadTasks()
+    } else {
+      ms.error(response?.msg || '中断任务失败')
+    }
+  } catch (error: any) {
+    console.error('中断任务失败:', error)
+    ms.error(error.message || '中断任务失败')
+  }
+}
+
+// 重试任务
+const handleRetryTask = async (task: Task) => {
+  if (!task.id) return
+  
+  try {
+    const response = await retryTask(task.id)
+    if (response && response.code === 200) {
+      // 重置任务进度
+      if (task.id) {
+        taskProgressMap.value.set(task.id, 0)
+      }
+      ms.success('任务已重新开始')
+      await loadTasks()
+      // 重新启动轮询和进度定时器
+      startPolling()
+      startProgressTimer()
+    } else {
+      ms.error(response?.msg || '重试任务失败')
+    }
+  } catch (error: any) {
+    console.error('重试任务失败:', error)
+    ms.error(error.message || '重试任务失败')
+  }
+}
+
+// 获取severity对应的CSS类名（中文值转换为英文类名）
+const getSeverityClass = (severity: string) => {
+  const map: Record<string, string> = {
+    '严重': 'critical',
+    '高': 'high',
+    '中': 'medium',
+    '低': 'low'
+  }
+  return map[severity] || 'low'
+}
+
+// 获取severity对应的Tag类型
+const getSeverityTagType = (severity: string) => {
+  const map: Record<string, string> = {
+    '严重': 'error',
+    '高': 'warning',
+    '中': 'info',
+    '低': 'default'
+  }
+  return map[severity] || 'default'
+}
+
+// 打开漏洞详情弹窗
+const openVulnerabilityModal = async (task: Task) => {
+  if (!task.id) {
+    ms.warning('任务ID不存在')
+    return
+  }
+  
+  currentTaskId.value = task.id
+  showVulnerabilityModal.value = true
+  vulnerabilityLoading.value = true
+  vulnerabilityDetail.value = null
+  
+  try {
+    const response = await getTaskVulnerabilities(task.id)
+    if (response && response.code === 200) {
+      vulnerabilityDetail.value = response.data || response
+    } else {
+      // 如果接口不存在，使用模拟数据
+      vulnerabilityDetail.value = {
+        taskId: task.id,
+        taskTitle: task.title,
+        totalCount: 0,
+        vulnerabilities: []
+      }
+      ms.warning('暂无漏洞数据')
+    }
+  } catch (error: any) {
+    console.error('获取漏洞详情失败:', error)
+    // 如果接口不存在，使用模拟数据
+    vulnerabilityDetail.value = {
+      taskId: task.id,
+      taskTitle: task.title,
+      totalCount: 0,
+      vulnerabilities: []
+    }
+    ms.warning('获取漏洞详情失败，请稍后重试')
+  } finally {
+    vulnerabilityLoading.value = false
+  }
+}
+
 // 表格列定义
 const columns = [
-  {
-    title: '所属项目',
-    key: 'projectId',
-    width: 150,
-    render: (row: Task) => {
-      if (!row.projectId) return '-'
-      return h(NTag, {
-        type: 'info',
-        size: 'small'
-      }, { default: () => getProjectName(row.projectId) })
-    }
-  },
   {
     title: '任务标题',
     key: 'title',
     width: 200,
     ellipsis: {
       tooltip: true
+    },
+    render: (row: Task) => {
+      return h('span', {
+        style: { cursor: 'pointer', color: '#18a058', textDecoration: 'underline' },
+        onClick: () => openVulnerabilityModal(row)
+      }, row.title)
     }
   },
   {
@@ -666,15 +996,41 @@ const columns = [
     }
   },
   {
-    title: '状态',
+    title: '状态/进度',
     key: 'status',
-    width: 100,
+    width: 200,
     render: (row: Task) => {
       if (!row.status) return '-'
-      return h(NTag, {
-        type: statusTagType(row.status) as any,
-        size: 'small'
-      }, { default: () => statusLabel(row.status) })
+      
+      // 如果已完成，显示已完成标签
+      if (row.status === TaskStatus.COMPLETED) {
+        return h(NTag, {
+          type: 'success',
+          size: 'small'
+        }, { default: () => '已完成' })
+      }
+      
+      // 如果已取消，显示已取消标签
+      if (row.status === TaskStatus.CANCELLED) {
+        return h(NTag, {
+          type: 'error',
+          size: 'small'
+        }, { default: () => '已取消' })
+      }
+      
+      // 如果进行中或待处理，显示进度条（使用本地维护的进度）
+      const progress = getTaskProgress(row)
+      const progressText = getProgressText(progress, row.status)
+      
+      return h('div', { style: 'display: flex; flex-direction: column; gap: 4px; width: 100%' }, [
+        h(NProgress, {
+          percentage: progress,
+          status: row.status === TaskStatus.IN_PROGRESS ? 'default' : 'info',
+          showIndicator: true,
+          height: 8
+        }),
+        h('span', { style: 'font-size: 12px; color: #666' }, `${progressText} ${progress}%`)
+      ])
     }
   },
   {
@@ -719,30 +1075,77 @@ const columns = [
   {
     title: '操作',
     key: 'actions',
-    width: 200,
+    width: 320,
     render: (row: Task) => {
-      return h(NSpace, { size: 'small' }, {
-        default: () => [
-          h(NButton, {
-            size: 'small',
-            type: 'primary',
-            onClick: () => openEditModal(row)
-          }, {
-            icon: () => h(NIcon, null, { default: () => h(CreateOutline) })
-          }),
+      const buttons: any[] = []
+      
+      // 编辑按钮
+      buttons.push(
+        h(NButton, {
+          size: 'small',
+          type: 'primary',
+          onClick: () => openEditModal(row)
+        }, {
+          icon: () => h(NIcon, null, { default: () => h(CreateOutline) }),
+          default: () => '编辑'
+        })
+      )
+      
+      // 中断按钮（仅在进行中或待处理时显示）
+      if (row.status === TaskStatus.IN_PROGRESS || row.status === TaskStatus.PENDING) {
+        buttons.push(
           h(NPopconfirm, {
-            onPositiveClick: () => handleDelete(row)
+            onPositiveClick: () => handleCancelTask(row)
           }, {
             trigger: () => h(NButton, {
               size: 'small',
-              type: 'error',
+              type: 'warning',
               onClick: () => {}
             }, {
-              icon: () => h(NIcon, null, { default: () => h(TrashOutline) })
+              icon: () => h(NIcon, null, { default: () => h(StopOutline) }),
+              default: () => '中断'
             }),
-            default: () => '确定要删除这个任务吗？'
+            default: () => '确定要中断这个任务吗？'
           })
-        ]
+        )
+      }
+      
+      // 重试按钮（在非进行中/待处理状态时显示，允许重新执行任务）
+      // 包括：已完成、已取消，以及任何非进行中的状态
+      if (row.status && 
+          row.status !== TaskStatus.IN_PROGRESS && 
+          row.status !== TaskStatus.PENDING) {
+        buttons.push(
+          h(NButton, {
+            size: 'small',
+            type: 'info',
+            onClick: () => handleRetryTask(row)
+          }, {
+            icon: () => h(NIcon, null, { default: () => h(RefreshOutline) }),
+            default: () => '重试'
+          })
+        )
+      }
+      
+      // 删除按钮
+      buttons.push(
+        h(NPopconfirm, {
+          onPositiveClick: () => handleDelete(row)
+        }, {
+          trigger: () => h(NButton, {
+            size: 'small',
+            type: 'error',
+            onClick: () => {}
+          }, {
+            icon: () => h(NIcon, null, { default: () => h(TrashOutline) }),
+            default: () => '删除'
+          }),
+          default: () => '确定要删除这个任务吗？'
+        })
+      )
+      
+      return h(NSpace, { size: 'small' }, {
+        default: () => buttons
       })
     }
   }
@@ -759,18 +1162,47 @@ const goBackToProject = () => {
   router.push('/project/index')
 }
 
-onMounted(async () => {
-  // 从URL参数中获取projectId
+// 初始化projectId
+const initProjectId = () => {
   const projectId = route.query.projectId as string
+  console.log('从URL获取的projectId:', projectId)
   if (projectId) {
     filterProjectId.value = projectId
     selectedProjectId.value = projectId
+    console.log('设置filterProjectId为:', filterProjectId.value)
+  } else {
+    // 如果没有projectId，清空筛选
+    filterProjectId.value = null
+    selectedProjectId.value = null
   }
+}
+
+// 监听路由变化
+watch(() => route.query.projectId, (newProjectId) => {
+  console.log('路由projectId变化:', newProjectId)
+  initProjectId()
+  loadTasks()
+}, { immediate: false })
+
+onMounted(async () => {
+  // 初始化projectId
+  initProjectId()
 
   // 加载项目列表
   await loadProjects()
   // 加载任务列表
   await loadTasks()
+  
+  // 启动定时轮询
+  startPolling()
+  // 启动进度递增定时器
+  startProgressTimer()
+})
+
+onUnmounted(() => {
+  // 组件卸载时停止轮询和进度定时器
+  stopPolling()
+  stopProgressTimer()
 })
 </script>
 
@@ -796,7 +1228,7 @@ onMounted(async () => {
         </template>
 
         <div class="mb-4">
-          <NGrid :cols="6" :x-gap="12">
+          <NGrid :cols="5" :x-gap="12">
             <NGridItem>
               <NInput
                 v-model:value="searchKeyword"
@@ -808,15 +1240,6 @@ onMounted(async () => {
                   <NIcon><SvgIcon icon="ri:search-line" /></NIcon>
                 </template>
               </NInput>
-            </NGridItem>
-            <NGridItem>
-              <NSelect
-                v-model:value="filterProjectId"
-                placeholder="筛选项目"
-                clearable
-                :options="projectOptions"
-                @update:value="handleFilterChange"
-              />
             </NGridItem>
             <NGridItem>
               <NSelect
@@ -877,11 +1300,11 @@ onMounted(async () => {
           <NFormItem label="任务标题" required>
             <NInput v-model:value="currentTask.title" placeholder="请输入任务标题" />
           </NFormItem>
-          <NFormItem label="任务描述">
+          <NFormItem label="任务要求">
             <NInput
               v-model:value="currentTask.description"
               type="textarea"
-              placeholder="请输入任务描述"
+              placeholder="请输入任务要求"
               :rows="4"
             />
           </NFormItem>
@@ -907,48 +1330,67 @@ onMounted(async () => {
             />
           </NFormItem>
           <NFormItem label="上传文件">
-            <NUpload
-              ref="uploadRef"
-              :action="uploadAction"
-              :headers="headers"
-              multiple
-              :max="10"
-              @finish="handleUploadFinish"
-              @before-upload="handleBeforeUpload"
-              @update:file-list="handleFileListChange"
-            >
-              <NUploadDragger>
-                <div style="margin-bottom: 12px">
-                  <NIcon size="48" :depth="3">
-                    <SvgIcon icon="mage:upload" />
-                  </NIcon>
-                </div>
-                <NText style="font-size: 16px">
-                  点击或者拖动文件到该区域来上传
-                </NText>
-                <NP depth="3" style="margin: 8px 0 0 0">
-                  支持多文件上传，最多10个文件
-                </NP>
-              </NUploadDragger>
-            </NUpload>
-            <div v-if="uploadedFiles.length > 0" class="mt-2">
-              <NText depth="3" style="font-size: 12px">已上传文件：</NText>
-              <NSpace class="mt-1" size="small">
-                <NTag
-                  v-for="file in uploadedFiles"
-                  :key="file.id || file.name"
-                  size="small"
-                  type="info"
-                  closable
-                  @close="() => {
-                    uploadedFiles = uploadedFiles.filter(f => (f.id && file.id ? f.id !== file.id : f.name !== file.name))
-                    currentTask.inputFiles = [...uploadedFiles]
-                  }"
+            <NSpace vertical :size="12">
+              <!-- 两个上传按钮 -->
+              <NSpace>
+                <NUpload
+                  ref="uploadRef"
+                  :action="uploadAction"
+                  :headers="headers"
+                  multiple
+                  :max="10"
+                  @finish="handleUploadFinish"
+                  @before-upload="handleBeforeUpload"
+                  @update:file-list="handleFileListChange"
                 >
-                  {{ file.name }}
-                </NTag>
+                  <NButton type="primary">
+                    <template #icon>
+                      <NIcon><SvgIcon icon="mage:upload" /></NIcon>
+                    </template>
+                    上传文件
+                  </NButton>
+                </NUpload>
+                <NButton 
+                  type="default" 
+                  :loading="isUploadingFolder"
+                  @click="handleFolderUpload"
+                >
+                  <template #icon>
+                    <NIcon><SvgIcon icon="material-symbols:folder-open" /></NIcon>
+                  </template>
+                  上传文件夹
+                </NButton>
+                <!-- 隐藏的文件夹选择input -->
+                <input
+                  ref="folderUploadInputRef"
+                  type="file"
+                  webkitdirectory
+                  multiple
+                  style="display: none"
+                  @change="handleFolderChange"
+                />
               </NSpace>
-            </div>
+              
+              <!-- 已上传文件列表 -->
+              <div v-if="uploadedFiles.length > 0" class="mt-2">
+                <NText depth="3" style="font-size: 12px">已上传文件：</NText>
+                <NSpace class="mt-1" size="small" :wrap="true">
+                  <NTag
+                    v-for="file in uploadedFiles"
+                    :key="file.id || file.name"
+                    size="small"
+                    type="info"
+                    closable
+                    @close="() => {
+                      uploadedFiles = uploadedFiles.filter(f => (f.id && file.id ? f.id !== file.id : f.name !== file.name))
+                      currentTask.inputFiles = [...uploadedFiles]
+                    }"
+                  >
+                    {{ file.name }}
+                  </NTag>
+                </NSpace>
+              </div>
+            </NSpace>
           </NFormItem>
         </NForm>
         <template #action>
@@ -958,6 +1400,121 @@ onMounted(async () => {
           </NSpace>
         </template>
       </NModal>
+
+      <!-- 漏洞详情弹窗 -->
+      <NModal
+        v-model:show="showVulnerabilityModal"
+        title="任务漏洞详情"
+        preset="card"
+        style="width: 900px; max-height: 80vh"
+        :mask-closable="false"
+      >
+        <NSpin :show="vulnerabilityLoading">
+          <div v-if="vulnerabilityDetail" class="vulnerability-detail">
+            <!-- 任务信息 -->
+            <NCard size="small" class="mb-4">
+              <div class="flex items-center justify-between">
+                <div>
+                  <NText strong style="font-size: 16px">{{ vulnerabilityDetail.taskTitle }}</NText>
+                </div>
+                <div class="flex items-center gap-4">
+                  <div class="text-center">
+                    <NText depth="3" style="font-size: 12px">漏洞总数</NText>
+                    <div class="text-2xl font-bold" :style="{ color: vulnerabilityDetail.totalCount > 0 ? '#d03050' : '#18a058' }">
+                      {{ vulnerabilityDetail.totalCount }}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </NCard>
+
+            <!-- 漏洞统计 -->
+            <NCard v-if="vulnerabilityDetail.severityCount" size="small" class="mb-4">
+              <template #header>漏洞统计</template>
+              <NSpace>
+                <NTag v-if="vulnerabilityDetail.severityCount?.['严重']" type="error" size="large">
+                  严重: {{ vulnerabilityDetail.severityCount['严重'] }}
+                </NTag>
+                <NTag v-if="vulnerabilityDetail.severityCount?.['高']" type="warning" size="large">
+                  高: {{ vulnerabilityDetail.severityCount['高'] }}
+                </NTag>
+                <NTag v-if="vulnerabilityDetail.severityCount?.['中']" type="info" size="large">
+                  中: {{ vulnerabilityDetail.severityCount['中'] }}
+                </NTag>
+                <NTag v-if="vulnerabilityDetail.severityCount?.['低']" type="default" size="large">
+                  低: {{ vulnerabilityDetail.severityCount['低'] }}
+                </NTag>
+              </NSpace>
+            </NCard>
+
+            <!-- 漏洞列表 -->
+            <div v-if="vulnerabilityDetail.vulnerabilities && vulnerabilityDetail.vulnerabilities.length > 0">
+              <NDivider style="margin: 16px 0">漏洞列表</NDivider>
+              <NScrollbar style="max-height: 500px">
+                <div class="vulnerability-list">
+                  <div
+                    v-for="(vuln, index) in vulnerabilityDetail.vulnerabilities"
+                    :key="vuln.id || index"
+                    :class="`vulnerability-item severity-${getSeverityClass(vuln.severity)}`"
+                  >
+                    <!-- 漏洞标题 -->
+                    <div class="vulnerability-header">
+                      <div class="flex items-center gap-2">
+                        <NTag
+                          :type="getSeverityTagType(vuln.severity)"
+                          size="small"
+                        >
+                          {{ vuln.severity }}
+                        </NTag>
+                        <NText strong style="font-size: 15px">{{ vuln.title }}</NText>
+                      </div>
+                      <NText v-if="vuln.category" depth="3" style="font-size: 12px">{{ vuln.category }}</NText>
+                    </div>
+                    
+                    <!-- 漏洞内容 -->
+                    <div class="vulnerability-content">
+                      <!-- 漏洞描述 -->
+                      <div class="vulnerability-section">
+                        <NText strong style="font-size: 14px; color: #666">漏洞描述：</NText>
+                        <div class="vulnerability-text">
+                          <NText>{{ vuln.description }}</NText>
+                        </div>
+                      </div>
+
+                      <!-- 文件位置 -->
+                      <div v-if="vuln.filePath" class="vulnerability-section">
+                        <NText strong style="font-size: 14px; color: #666">文件位置：</NText>
+                        <div class="vulnerability-text">
+                          <NText code>{{ vuln.filePath }}{{ vuln.lineNumber ? `:${vuln.lineNumber}` : '' }}</NText>
+                        </div>
+                      </div>
+
+                      <!-- 代码片段 -->
+                      <div v-if="vuln.codeSnippet" class="vulnerability-section">
+                        <NText strong style="font-size: 14px; color: #666">相关代码：</NText>
+                        <div class="vulnerability-text">
+                          <pre class="code-snippet"><code>{{ vuln.codeSnippet }}</code></pre>
+                        </div>
+                      </div>
+
+                      <!-- 修复建议 -->
+                      <div class="vulnerability-section fix-suggestion">
+                        <NText strong style="font-size: 14px; color: #18a058">修复建议：</NText>
+                        <div class="vulnerability-text">
+                          <NText>{{ vuln.fixSuggestion }}</NText>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </NScrollbar>
+            </div>
+
+            <!-- 无漏洞提示 -->
+            <NEmpty v-else description="该任务暂未发现漏洞" />
+          </div>
+        </NSpin>
+      </NModal>
     </div>
   </NMessageProvider>
 </template>
@@ -965,6 +1522,133 @@ onMounted(async () => {
 <style scoped>
 :deep(.n-data-table) {
   height: 100%;
+}
+
+.vulnerability-detail {
+  padding: 0;
+}
+
+.vulnerability-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+
+.vulnerability-item {
+  padding: 16px;
+  border-left: 3px solid #e5e7eb;
+  background-color: #fafafa;
+  transition: all 0.2s;
+  border-bottom: 1px solid #e5e7eb;
+}
+
+.vulnerability-item:last-child {
+  border-bottom: none;
+}
+
+.vulnerability-item.severity-critical {
+  border-left-color: #d03050;
+  background-color: #fff1f0;
+}
+
+.vulnerability-item.severity-high {
+  border-left-color: #f0a020;
+  background-color: #fffbe6;
+}
+
+.vulnerability-item.severity-medium {
+  border-left-color: #2080f0;
+  background-color: #e6f7ff;
+}
+
+.vulnerability-item.severity-low {
+  border-left-color: #909399;
+  background-color: #f5f5f5;
+}
+
+.dark .vulnerability-item {
+  background-color: #1a1a1a;
+  border-left-color: #404040;
+  border-bottom-color: #404040;
+}
+
+.dark .vulnerability-item.severity-critical {
+  background-color: #2a1a1a;
+  border-left-color: #d03050;
+}
+
+.dark .vulnerability-item.severity-high {
+  background-color: #2a241a;
+  border-left-color: #f0a020;
+}
+
+.dark .vulnerability-item.severity-medium {
+  background-color: #1a1f2a;
+  border-left-color: #2080f0;
+}
+
+.dark .vulnerability-item.severity-low {
+  background-color: #1f1f1f;
+  border-left-color: #606060;
+}
+
+.vulnerability-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.06);
+}
+
+.dark .vulnerability-header {
+  border-bottom-color: rgba(255, 255, 255, 0.1);
+}
+
+.vulnerability-content {
+  padding: 0;
+}
+
+.vulnerability-section {
+  margin-bottom: 12px;
+}
+
+.vulnerability-section:last-child {
+  margin-bottom: 0;
+}
+
+.vulnerability-text {
+  margin-top: 6px;
+  line-height: 1.6;
+}
+
+.code-snippet {
+  background-color: #f5f5f5;
+  padding: 12px;
+  border-radius: 4px;
+  overflow-x: auto;
+  font-family: 'Courier New', monospace;
+  font-size: 12px;
+  line-height: 1.5;
+  margin: 6px 0 0 0;
+}
+
+.dark .code-snippet {
+  background-color: #2d2d2d;
+  color: #f8f8f2;
+}
+
+.fix-suggestion {
+  padding: 12px;
+  background-color: #f6ffed;
+  border-left: 3px solid #52c41a;
+  border-radius: 4px;
+  margin-top: 8px;
+}
+
+.dark .fix-suggestion {
+  background-color: #162312;
+  border-left-color: #73d13d;
 }
 </style>
 

@@ -19,8 +19,7 @@ import {
   NIcon,
   NPopconfirm,
   NText,
-  NStatistic,
-  NDivider
+  NStatistic
 } from 'naive-ui'
 import { SvgIcon } from '@/components/common'
 import { 
@@ -86,6 +85,14 @@ const currentUser = ref<{
   deptName?: string
   deptId?: number | string
 }>({})
+
+// 状态选项
+const statusOptions = [
+  { label: '进行中', value: ProjectStatus.ACTIVE },
+  { label: '已完成', value: ProjectStatus.COMPLETED },
+  { label: '已归档', value: ProjectStatus.ARCHIVED },
+  { label: '已取消', value: ProjectStatus.CANCELLED }
+]
 
 // 计算项目状态（根据任务完成情况）
 const calculateProjectStatus = async (project: Project): Promise<ProjectStatus> => {
@@ -206,6 +213,23 @@ const loadProjects = async () => {
       } else if (response.list) {
         projectList = response.list
       }
+      
+      // 处理字段映射，兼容后端可能返回的不同字段名
+      projectList = projectList.map((project: any) => {
+        // 映射创建部门字段（兼容不同的字段名）
+        if (!project.createdByDept) {
+          project.createdByDept = project.deptName || project.dept?.deptName || project.createdByDeptName || project.department || ''
+        }
+        // 映射创建部门ID字段
+        if (!project.createdByDeptId) {
+          project.createdByDeptId = project.deptId || project.dept?.deptId || project.createdByDeptId || project.departmentId
+        }
+        // 映射创建人字段
+        if (!project.createdBy) {
+          project.createdBy = project.creator || project.createBy || project.userName || project.nickName || ''
+        }
+        return project as Project
+      })
       
       // 自动计算并更新每个项目的状态
       for (const project of projectList) {
@@ -349,7 +373,6 @@ const saveProject = async () => {
   }
 }
 
-
 // 删除项目
 const handleDelete = async (project: Project) => {
   if (!project.id) return
@@ -371,7 +394,6 @@ const handleDelete = async (project: Project) => {
     ms.error(error.message || '删除失败')
   }
 }
-
 
 // 查看项目任务
 const viewProjectTasks = (project: Project) => {
@@ -486,8 +508,11 @@ const columns = [
   {
     title: '创建部门',
     key: 'createdByDept',
-    width: 120,
-    render: (row: Project) => row.createdByDept || '-'
+    width: 150,
+    render: (row: Project) => {
+      const deptName = row.createdByDept || (row as any).deptName || (row as any).dept?.deptName || (row as any).createdByDeptName || (row as any).department
+      return deptName || '-'
+    }
   },
   {
     title: '创建时间',
