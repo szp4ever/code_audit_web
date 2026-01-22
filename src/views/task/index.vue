@@ -340,10 +340,22 @@ const loadTasks = async () => {
       tasks.value = taskList
       total.value = response.data?.total || response.total || taskList.length
 
-      // 批量预加载漏洞数量（关键修复：提前加载，避免渲染时异步）
-      await Promise.all(
-        taskList.map(task => task.id ? getTaskVulnerabilityCount(task.id) : Promise.resolve(0))
-      )
+			taskVulnerabilityCountMap.value.clear()
+			await Promise.all(
+				taskList.map(async (task) => {
+					if (!task.id) return 0
+					try {
+						const response = await getTaskVulnerabilities(task.id)
+						const count = response?.code === 200 ? (response.data?.totalCount || 0) : 0
+						taskVulnerabilityCountMap.value.set(task.id, count)
+						return count
+					} catch (error) {
+						console.error(`获取任务${task.id}漏洞数量失败:`, error)
+						taskVulnerabilityCountMap.value.set(task.id, 0)
+						return 0
+					}
+				})
+			)
 
       // 轮询和进度定时器逻辑
       const hasInProgressTasks = taskList.some(
@@ -959,7 +971,7 @@ const columns = [
   {
     title: '任务标题',
     key: 'title',
-    width: 200,
+    width: 150,
     ellipsis: {
       tooltip: true
     },
@@ -973,7 +985,7 @@ const columns = [
   {
     title: '任务要求',
     key: 'description',
-    width: 250,
+    width: 100,
     ellipsis: {
       tooltip: true
     },
