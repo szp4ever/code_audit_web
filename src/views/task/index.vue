@@ -68,6 +68,7 @@ const enablePolling = ref(true) // 是否启用轮询
 // 本地维护的任务进度（不依赖后端）
 const taskProgressMap = ref<Map<string | number, number>>(new Map())
 const taskVulnerabilityCountMap = ref<Map<string | number, number>>(new Map())
+const prevTaskStatusMap = ref<Map<string | number, TaskStatus>>(new Map())
 
 const pagination = ref({
   page: 1,
@@ -338,6 +339,22 @@ const loadTasks = async () => {
       })
 
       tasks.value = taskList
+			taskList.forEach((task: Task) => {
+				if (!task.id) return
+				const prevStatus = prevTaskStatusMap.value.get(task.id)
+				const currentStatus = task.status
+
+				// 仅当「上一次状态是进行中/待处理」且「当前状态是已完成」时触发提示
+				if (
+					currentStatus === TaskStatus.COMPLETED &&
+					[TaskStatus.IN_PROGRESS, TaskStatus.PENDING].includes(prevStatus || '')
+				) {
+					ms.success(`任务「${task.title}」已完成`)
+				}
+
+				// 更新状态缓存
+				prevTaskStatusMap.value.set(task.id, currentStatus)
+			})
       total.value = response.data?.total || response.total || taskList.length
 
 			taskVulnerabilityCountMap.value.clear()
@@ -661,6 +678,7 @@ const saveTask = async () => {
       if (uploadRef.value) {
         uploadRef.value.clear()
       }
+
       // 刷新任务列表
       await loadTasks()
     }
@@ -782,7 +800,6 @@ const getTaskProgress = (task: Task): number => {
     }
     return taskProgressMap.value.get(task.id) || 0
   }
-
   return 0
 }
 
