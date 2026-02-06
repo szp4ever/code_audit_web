@@ -74,6 +74,11 @@ service.interceptors.request.use(
       config.url = url;
     }
 
+    // FormData数据去请求头Content-Type（需要在防重复提交检查之前处理）
+    if (config.data instanceof FormData) {
+      delete config.headers['Content-Type'];
+    }
+
     if (!isRepeatSubmit && (config.method === 'post' || config.method === 'put')) {
       // 自定义 JSON 序列化，处理大整数精度问题（用于重复提交检查）
       const serializeData = (data: any): string => {
@@ -86,9 +91,11 @@ service.interceptors.request.use(
           return value;
         });
       };
+      // FormData不需要参与防重复提交检查，因为FormData无法序列化为JSON
+      const isFormData = config.data instanceof FormData;
       const requestObj = {
         url: config.url,
-        data: typeof config.data === 'object' ? serializeData(config.data) : config.data,
+        data: isFormData ? '[FormData]' : (typeof config.data === 'object' ? serializeData(config.data) : config.data),
         time: new Date().getTime()
       };
       const sessionObj = cache.session.getJSON('sessionObj');
@@ -106,10 +113,6 @@ service.interceptors.request.use(
           cache.session.setJSON('sessionObj', requestObj);
         }
       }
-    }
-    // FormData数据去请求头Content-Type
-    if (config.data instanceof FormData) {
-      delete config.headers['Content-Type'];
     }
     return config;
   },
