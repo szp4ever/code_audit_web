@@ -108,6 +108,21 @@ const routes: RouteRecordRaw[] = [
         name: 'knowledge1',
         component: () => import('@/views/knowledge/index.vue'),
       },
+      {
+        path: 'item/list',
+        name: 'knowledgeItemList',
+        component: () => import('@/views/knowledge/item/list.vue'),
+      },
+      {
+        path: 'item/detail/:itemUuid',
+        name: 'knowledgeItemDetail',
+        component: () => import('@/views/knowledge/item/detail.vue'),
+      },
+      {
+        path: 'item/:itemUuid/fragments',
+        name: 'knowledgeItemFragments',
+        component: () => import('@/views/knowledge/item/fragments.vue'),
+      },
     ],
   },
 
@@ -163,6 +178,11 @@ const routes: RouteRecordRaw[] = [
         path: 't',
         name: 'annex1',
         component: () => import('@/views/knowledge/annex.vue'),
+      },
+      {
+        path: 'llm-test',
+        name: 'annexLlmTest',
+        component: () => import('@/views/knowledge/LlmTest.vue'),
       },
     ],
   },
@@ -220,7 +240,15 @@ const routes: RouteRecordRaw[] = [
 export const router = createRouter({
   history: createWebHashHistory(),
   routes,
-  scrollBehavior: () => ({ left: 0, top: 0 }),
+  scrollBehavior(to, from, savedPosition) {
+    if (savedPosition) {
+      return savedPosition
+    } else if (to.hash) {
+      return { el: to.hash, behavior: 'smooth' }
+    } else {
+      return { left: 0, top: 0, behavior: 'smooth' }
+    }
+  },
 })
 
 setupPageGuard(router)

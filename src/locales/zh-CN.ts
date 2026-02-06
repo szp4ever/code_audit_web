@@ -198,6 +198,7 @@ export default {
     add: "添加",
     delete: "删除",
     attachment: "附件",
+    knowledgeItem: "知识条目",
     id: "ID",
     number: "编号",
     name: "知识名称",

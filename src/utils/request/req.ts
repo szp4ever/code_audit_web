@@ -18,13 +18,47 @@ axios.defaults.headers['Content-Type'] = 'application/json;charset=utf-8';
 // 创建 axios 实例
 const service = axios.create({
   baseURL: import.meta.env.VITE_GLOB_API_URL,
-  timeout: 50000
+  timeout: 300000,
+  // 自定义请求数据转换，处理大整数精度问题
+  transformRequest: [(data) => {
+    // FormData不需要序列化，直接返回
+    if (data instanceof FormData) {
+      return data;
+    }
+    if (typeof data === 'object' && data !== null) {
+      // 使用自定义序列化函数处理大整数
+      // 对于超过安全整数范围的字段，转换为字符串
+      // 后端 Jackson 应该能够将字符串反序列化为 Long
+      return JSON.stringify(data, (key, value) => {
+        // 如果值是大整数（超过安全整数范围），转换为字符串
+        if (typeof value === 'number' && value > Number.MAX_SAFE_INTEGER) {
+          return String(value);
+        }
+        // 如果值已经是字符串，且看起来像大整数，保持为字符串
+        if (typeof value === 'string' && /^\d{16,}$/.test(value)) {
+          const numValue = Number(value);
+          if (numValue > Number.MAX_SAFE_INTEGER) {
+            return value;
+          }
+        }
+        return value;
+      });
+    }
+    return data;
+  }]
 });
 
 
 // 请求拦截器
 service.interceptors.request.use(
   (config: InternalAxiosRequestConfig) => {
+    if (config.url?.includes('llm/test-extract')) {
+      const fullUrl = `${config.baseURL || ''}${config.url}`
+      console.log('[请求拦截器] LLM测试请求 - 完整URL:', fullUrl)
+      console.log('[请求拦截器] LLM测试请求 - baseURL:', config.baseURL)
+      console.log('[请求拦截器] LLM测试请求 - url:', config.url)
+      console.log('[请求拦截器] LLM测试请求 - data:', config.data)
+    }
 
     const isToken = (config.headers || {}).isToken === false;
     // 是否需要防止数据重复提交
@@ -41,9 +75,20 @@ service.interceptors.request.use(
     }
 
     if (!isRepeatSubmit && (config.method === 'post' || config.method === 'put')) {
+      // 自定义 JSON 序列化，处理大整数精度问题（用于重复提交检查）
+      const serializeData = (data: any): string => {
+        return JSON.stringify(data, (key, value) => {
+          // 如果值是大整数（超过安全整数范围），转换为字符串
+          // 注意：只对 embeddingModelId 字段进行转换，因为后端可能期望其他字段是数字
+          if (key === 'embeddingModelId' && typeof value === 'number' && value > Number.MAX_SAFE_INTEGER) {
+            return String(value);
+          }
+          return value;
+        });
+      };
       const requestObj = {
         url: config.url,
-        data: typeof config.data === 'object' ? JSON.stringify(config.data) : config.data,
+        data: typeof config.data === 'object' ? serializeData(config.data) : config.data,
         time: new Date().getTime()
       };
       const sessionObj = cache.session.getJSON('sessionObj');
@@ -56,7 +101,6 @@ service.interceptors.request.use(
         const interval = 500; // 间隔时间(ms)，小于此时间视为重复提交
         if (s_data === requestObj.data && requestObj.time - s_time < interval && s_url === requestObj.url) {
           const message = '数据正在处理，请勿重复提交';
-          console.warn(`[${s_url}]: ` + message);
           return Promise.reject(new Error(message));
         } else {
           cache.session.setJSON('sessionObj', requestObj);
@@ -78,6 +122,11 @@ service.interceptors.request.use(
 // 响应拦截器
 service.interceptors.response.use(
   (res: AxiosResponse) => {
+    if (res.config.url?.includes('llm/test-extract')) {
+      console.log('[响应拦截器] LLM测试响应 - 状态码:', res.status)
+      console.log('[响应拦截器] LLM测试响应 - 完整响应:', res)
+      console.log('[响应拦截器] LLM测试响应 - data:', res.data)
+    }
     // 未设置状态码则默认成功状态
     const code = res.data.code || HttpStatus.SUCCESS;
     // 获取错误信息
@@ -93,8 +142,10 @@ service.interceptors.response.use(
           location.href = '#/login';
       });
     } else if (code === HttpStatus.SERVER_ERROR) {
-      // console.log(msg);
-       return Promise.reject(new Error(msg));
+      const error = new Error(msg);
+      (error as any).responseData = res.data;
+      (error as any).originalCode = code;
+      return Promise.reject(error);
     } else if (code === HttpStatus.WARN) {
       ElMessage({ message: msg, type: 'warning' });
       return Promise.reject(new Error(msg));
@@ -106,6 +157,12 @@ service.interceptors.response.use(
     }
   },
   (error: any) => {
+    if (error.config?.url?.includes('llm/test-extract')) {
+      console.error('[响应拦截器] LLM测试错误 - 错误对象:', error)
+      console.error('[响应拦截器] LLM测试错误 - 响应:', error.response)
+      console.error('[响应拦截器] LLM测试错误 - 状态码:', error.response?.status)
+      console.error('[响应拦截器] LLM测试错误 - 错误数据:', error.response?.data)
+    }
     let { message } = error;
     if (message == 'Network Error') {
       message = '后端接口连接异常';

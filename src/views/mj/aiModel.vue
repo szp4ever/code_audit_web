@@ -43,7 +43,7 @@ const fetchDataGetKnowledge = async () => {
 	if (getToken()) {
 		try {
 			// 发起一个请求
-			const [err, result] = await to(getKnowledgeByRole());
+			const [err, result] = await to(getKnowledgeByRole({ pageNum: 1, pageSize: 100 }));
 			if (err) {
 				ms.error(err.message)
 			} else if (result) {

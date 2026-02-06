@@ -39,7 +39,7 @@ export default defineConfig(({ mode }) => {
     plugins: setupPlugins(viteEnv),
     server: {
       host: '0.0.0.0',
-      port: 1002,
+      port: 3002, //这里可能是由于某些权限问题，从原有的1002改成了3002
       open: false,
       proxy: {
         '/api': {

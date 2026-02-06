@@ -12,3 +12,214 @@ body {
 .active{
     color: #4b9e5f!important;
 }
+
+/* ============================================
+   Primary 按钮黑白灰协调配色方案
+   使用深灰、中灰、浅灰的层次搭配
+   使用 CSS 变量和最高优先级确保覆盖
+   ============================================ */
+
+/* CSS 变量定义 */
+:root {
+	--btn-primary-base: #1a1a1a;
+	--btn-primary-hover: #2d2d2d;
+	--btn-primary-pressed: #0f0f0f;
+	--btn-primary-disabled: #e5e5e5;
+	--btn-text-primary: #ffffff;
+	--btn-text-disabled: #999999;
+}
+
+/* 基础 primary 按钮 - 深灰色背景，使用最高优先级 */
+.n-button.n-button--primary,
+button.n-button.n-button--primary {
+	background: var(--btn-primary-base) !important;
+	background-color: var(--btn-primary-base) !important;
+	color: var(--btn-text-primary) !important;
+	border-color: var(--btn-primary-base) !important;
+	transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1) !important;
+	box-shadow: 0 1px 2px rgba(0, 0, 0, 0.1) !important;
+}
+
+/* 悬停状态 - 稍亮的灰色，有层次感，使用多重选择器提高优先级 */
+.n-button.n-button--primary:hover:not(.n-button--disabled):not(.n-button--loading),
+button.n-button.n-button--primary:hover:not(.n-button--disabled):not(.n-button--loading),
+.n-button--primary:hover:not(.n-button--disabled):not(.n-button--loading) {
+	background: var(--btn-primary-hover) !important;
+	background-color: var(--btn-primary-hover) !important;
+	border-color: var(--btn-primary-hover) !important;
+	color: var(--btn-text-primary) !important;
+	box-shadow: 0 2px 4px rgba(0, 0, 0, 0.15) !important;
+	transform: translateY(-1px) !important;
+}
+
+/* 按下/激活状态 - 更深的灰色 */
+.n-button.n-button--primary:active:not(.n-button--disabled):not(.n-button--loading),
+.n-button.n-button--primary.n-button--active:not(.n-button--disabled):not(.n-button--loading),
+button.n-button.n-button--primary:active:not(.n-button--disabled):not(.n-button--loading) {
+	background: var(--btn-primary-pressed) !important;
+	background-color: var(--btn-primary-pressed) !important;
+	border-color: var(--btn-primary-pressed) !important;
+	color: #f5f5f5 !important;
+	box-shadow: 0 1px 2px rgba(0, 0, 0, 0.2) !important;
+	transform: translateY(0) !important;
+}
+
+/* 聚焦状态 - 带微妙的边框高亮 */
+.n-button.n-button--primary:focus-visible:not(.n-button--disabled),
+button.n-button.n-button--primary:focus-visible:not(.n-button--disabled) {
+	background: var(--btn-primary-hover) !important;
+	background-color: var(--btn-primary-hover) !important;
+	border-color: var(--btn-primary-hover) !important;
+	box-shadow: 0 0 0 3px rgba(45, 45, 45, 0.2), 0 2px 4px rgba(0, 0, 0, 0.15) !important;
+	outline: none !important;
+}
+
+/* 禁用状态 - 浅灰背景，中灰文字 */
+.n-button.n-button--primary.n-button--disabled {
+	background: #e5e5e5 !important;
+	border-color: #e5e5e5 !important;
+	color: #999999 !important;
+	opacity: 1 !important;
+	cursor: not-allowed !important;
+	box-shadow: none !important;
+	transform: none !important;
+}
+
+/* Loading 状态 - 保持深灰背景 */
+.n-button.n-button--primary.n-button--loading {
+	background: #1a1a1a !important;
+	border-color: #1a1a1a !important;
+	color: #ffffff !important;
+}
+
+/* Loading 图标和按钮内图标颜色 */
+.n-button.n-button--primary .n-base-loading .n-base-loading__spinner,
+.n-button.n-button--primary .n-button__icon,
+.n-button.n-button--primary .n-icon,
+.n-button.n-button--primary .n-base-loading__icon {
+	color: #ffffff !important;
+	stroke: #ffffff !important;
+	fill: #ffffff !important;
+}
+
+/* Ghost 变体（透明背景，深灰边框和文字） */
+.n-button.n-button--primary.n-button--ghost {
+	background: transparent !important;
+	color: #1a1a1a !important;
+	border-color: #1a1a1a !important;
+}
+
+.n-button.n-button--primary.n-button--ghost:hover:not(.n-button--disabled):not(.n-button--loading) {
+	background: rgba(26, 26, 26, 0.08) !important;
+	color: #2d2d2d !important;
+	border-color: #2d2d2d !important;
+}
+
+.n-button.n-button--primary.n-button--ghost:active:not(.n-button--disabled):not(.n-button--loading) {
+	background: rgba(26, 26, 26, 0.12) !important;
+	color: #1a1a1a !important;
+	border-color: #1a1a1a !important;
+}
+
+.n-button.n-button--primary.n-button--ghost.n-button--disabled {
+	background: transparent !important;
+	color: #999999 !important;
+	border-color: #e5e5e5 !important;
+}
+
+/* Dashed 变体 */
+.n-button.n-button--primary.n-button--dashed {
+	background: #1a1a1a !important;
+	color: #ffffff !important;
+	border-style: dashed !important;
+	border-color: #1a1a1a !important;
+}
+
+.n-button.n-button--primary.n-button--dashed:hover:not(.n-button--disabled):not(.n-button--loading) {
+	background: #2d2d2d !important;
+	border-color: #2d2d2d !important;
+}
+
+.n-button.n-button--primary.n-button--dashed.n-button--disabled {
+	background: #e5e5e5 !important;
+	border-color: #e5e5e5 !important;
+	color: #999999 !important;
+}
+
+/* Text / Link 类型 */
+.n-button.n-button--text.n-button--primary,
+.n-button.n-button--link.n-button--primary {
+	background: transparent !important;
+	color: #1a1a1a !important;
+	border: none !important;
+}
+
+.n-button.n-button--text.n-button--primary:hover:not(.n-button--disabled),
+.n-button.n-button--link.n-button--primary:hover:not(.n-button--disabled) {
+	background: rgba(26, 26, 26, 0.08) !important;
+	color: #2d2d2d !important;
+}
+
+.n-button.n-button--text.n-button--primary:active:not(.n-button--disabled),
+.n-button.n-button--link.n-button--primary:active:not(.n-button--disabled) {
+	background: rgba(26, 26, 26, 0.12) !important;
+	color: #1a1a1a !important;
+}
+
+.n-button.n-button--text.n-button--primary.n-button--disabled,
+.n-button.n-button--link.n-button--primary.n-button--disabled {
+	color: #999999 !important;
+	background: transparent !important;
+}
+
+/* 按钮组中的 primary 按钮 */
+.n-button-group .n-button.n-button--primary {
+	background: #1a1a1a !important;
+	border-color: #1a1a1a !important;
+	color: #ffffff !important;
+}
+
+.n-button-group .n-button.n-button--primary:hover:not(.n-button--disabled) {
+	background: #2d2d2d !important;
+	border-color: #2d2d2d !important;
+}
+
+/* 波纹效果 - 柔和的白色波纹 */
+.n-button.n-button--primary .n-base-wave {
+	background: rgba(255, 255, 255, 0.2) !important;
+}
+
+/* 在 dropdown、popconfirm 等组件中作为触发器 */
+.n-dropdown .n-button.n-button--primary,
+.n-popconfirm .n-button.n-button--primary,
+.n-popover .n-button.n-button--primary {
+	background: #1a1a1a !important;
+	border-color: #1a1a1a !important;
+	color: #ffffff !important;
+}
+
+.n-dropdown .n-button.n-button--primary:hover:not(.n-button--disabled),
+.n-popconfirm .n-button.n-button--primary:hover:not(.n-button--disabled),
+.n-popover .n-button.n-button--primary:hover:not(.n-button--disabled) {
+	background: #2d2d2d !important;
+	border-color: #2d2d2d !important;
+}
+
+/* 暗色模式适配 - 使用浅色系 */
+html.dark .n-button.n-button--primary:not(.n-button--ghost):not(.n-button--text):not(.n-button--link) {
+	background: #2d2d2d !important;
+	color: #ffffff !important;
+	border-color: #2d2d2d !important;
+}
+
+html.dark .n-button.n-button--primary:hover:not(.n-button--disabled):not(.n-button--loading):not(.n-button--ghost):not(.n-button--text):not(.n-button--link) {
+	background: #3a3a3a !important;
+	border-color: #3a3a3a !important;
+	color: #ffffff !important;
+}
+
+html.dark .n-button.n-button--primary.n-button--disabled {
+	background: #1a1a1a !important;
+	border-color: #1a1a1a !important;
+	color: #666666 !important;
+}

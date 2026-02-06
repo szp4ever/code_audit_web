@@ -13,13 +13,28 @@ const docId = ref<string>("");
 
 onMounted(() => {
 	docId.value = router.currentRoute.value.query.docId as string;
+	if (!docId.value) {
+		message.error("缺少文档ID参数");
+		return;
+	}
 	fetchData();
 });
 
 const message = useMessage();
 
 const goBack = () => {
-	router.go(-1);
+	//逻辑返回：返回到附件管理页
+	const kid = router.currentRoute.value.query.kid as string | undefined;
+	if (kid) {
+		router.push({
+			name: 'annex1',
+			query: { kid },
+		});
+	} else {
+		router.push({
+			name: 'knowledge1',
+		});
+	}
 };
 
 const pagination = ref({

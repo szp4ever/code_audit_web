@@ -1,19 +1,15 @@
 <script setup lang='ts'>
 import { computed } from 'vue'
 import { NLayout, NLayoutContent } from 'naive-ui'
-import { useRouter } from 'vue-router'
 import Permission from '../chat/layout/Permission.vue'
 import { useBasicLayout } from '@/hooks/useBasicLayout'
-import { homeStore, useAppStore, useAuthStore, useChatStore } from '@/store'
+import { homeStore, useAppStore, useAuthStore } from '@/store'
 import { aiSider ,aiFooter} from '@/views/mj'
 import aiMobileMenu from '@/views/mj/aiMobileMenu.vue'; 
 
-const router = useRouter()
 const appStore = useAppStore()
-const chatStore = useChatStore()
 const authStore = useAuthStore()
 
-router.replace({ name: 'Knowledge', params: { uuid: chatStore.active } })
 homeStore.setMyData({local:'knowledge'});
 const { isMobile } = useBasicLayout()
 
@@ -58,4 +54,5 @@ const getContainerClass = computed(() => {
 .h55{
   height: calc(100% - 55px);
 }
+
 </style>
