@@ -130,14 +130,45 @@ service.interceptors.response.use(
       console.log('[响应拦截器] LLM测试响应 - 完整响应:', res)
       console.log('[响应拦截器] LLM测试响应 - data:', res.data)
     }
+    //二进制数据需要优先检查，避免对blob数据执行JSON解析逻辑
+    const isBlobRequest = res.config.responseType === 'blob' || res.config.responseType === 'arraybuffer';
+    const isExportUrl = res.config.url?.includes('/export') || res.config.url?.includes('/download');
+    if (isExportUrl || isBlobRequest) {
+      console.log('[响应拦截器] 检测到导出请求:', {
+        url: res.config.url,
+        responseType: res.config.responseType,
+        isBlobRequest,
+        status: res.status,
+        dataType: typeof res.data,
+        dataIsBlob: res.data instanceof Blob,
+        dataSize: res.data instanceof Blob ? res.data.size : 'N/A',
+        headers: res.headers
+      });
+    }
+    if (isBlobRequest) {
+      if (res.status >= 400) {
+        console.error('[响应拦截器] Blob响应错误:', res.status);
+        const error = new Error('导出失败');
+        (error as any).response = res;
+        (error as any).status = res.status;
+        return Promise.reject(error);
+      }
+      const result: any = res.data;
+      result.status = res.status;
+      result.headers = res.headers;
+      console.log('[响应拦截器] Blob响应处理完成:', {
+        resultType: typeof result,
+        resultIsBlob: result instanceof Blob,
+        resultSize: result instanceof Blob ? result.size : 'N/A',
+        hasStatus: 'status' in result,
+        hasHeaders: 'headers' in result
+      });
+      return result;
+    }
     // 未设置状态码则默认成功状态
     const code = res.data.code || HttpStatus.SUCCESS;
     // 获取错误信息
     const msg = errorCode[code] || res.data.msg || errorCode['default'];
-    // 二进制数据则直接返回
-    if (res.request.responseType === 'blob' || res.request.responseType === 'arraybuffer') {
-      return res.data;
-    }
     if (code === 401) {
       // 退出登录
       message.error('无效的会话，或者会话已过期，请重新登录。')

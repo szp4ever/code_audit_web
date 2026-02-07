@@ -163,6 +163,7 @@ export interface ExportPreviewResponse {
 	estimatedFileSize: number;
 	estimatedTime: number;
 	previewHtml?: string;
+	pdfFormatType?: 'table' | 'report';
 }
 
 export function exportPreview(params: ExportPreviewRequest) {
@@ -178,6 +179,12 @@ export interface ExportRequest extends ExportPreviewRequest {
 }
 
 export function exportKnowledgeItems(params: ExportRequest) {
+	console.log('[API调用] exportKnowledgeItems - 请求配置:', {
+		url: "/knowledge/item/export",
+		method: "post",
+		responseType: "blob",
+		params: params
+	});
 	return request({
 		url: "/knowledge/item/export",
 		method: "post",

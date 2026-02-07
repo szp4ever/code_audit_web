@@ -1974,12 +1974,11 @@
 			return 'some';
 		}
 		
-		function toggleBatchEditTag(tagName: string) {
-			const state = getBatchEditTagState(tagName);
-			if (state === 'all') {
-				batchEditTagsSelectedTags.value.delete(tagName);
-			} else {
+		function toggleBatchEditTag(tagName: string, checked: boolean) {
+			if (checked) {
 				batchEditTagsSelectedTags.value.add(tagName);
+			} else {
+				batchEditTagsSelectedTags.value.delete(tagName);
 			}
 		}
 		
@@ -2122,6 +2121,7 @@
 				includeHeaderFooter: true,
 				includeTOC: true,
 				codeHighlight: true,
+				formatType: null as 'report' | 'table' | null,//null表示自动判断
 			},
 			excelOptions: {
 				includeFilter: true,
@@ -2203,6 +2203,7 @@
 				vulnerabilityTypes: 'name_only',
 				tags: 'name_only',
 			};
+			currentExportStep.value = 1;
 			loadExportConfigFromStorage();
 			showExportDialog.value = true;
 			nextTick(() => {
@@ -2222,6 +2223,7 @@
 				vulnerabilityTypes: 'name_only',
 				tags: 'name_only',
 			};
+			currentExportStep.value = 1;
 			loadExportConfigFromStorage();
 			showExportDialog.value = true;
 			nextTick(() => {
@@ -2299,11 +2301,11 @@
 		let previewDebounceTimer: ReturnType<typeof setTimeout> | null = null;
 		
 		async function loadExportPreview() {
+			exportPreviewLoading.value = true;
 			if (previewDebounceTimer) {
 				clearTimeout(previewDebounceTimer);
 			}
 			previewDebounceTimer = setTimeout(async () => {
-				exportPreviewLoading.value = true;
 				try {
 					const request: any = {
 				format: exportConfig.value.format,
@@ -2564,6 +2566,30 @@
 			return finalWidth;
 		};
 		
+		//判断是否允许字段拖拽排序
+		const allowFieldDrag = computed(() => {
+			if (exportConfig.value.format === 'excel') {
+				return true;
+			}
+			if (exportConfig.value.format === 'pdf') {
+				const pdfFormatType = exportPreviewData.value?.pdfFormatType;
+				if (pdfFormatType === 'table') {
+					return true;
+				}
+				if (pdfFormatType === 'report') {
+					return false;
+				}
+				const formatType = exportConfig.value.pdfOptions?.formatType;
+				if (formatType === 'table') {
+					return true;
+				}
+				if (formatType === 'report' || formatType === null) {
+					return false;
+				}
+				return false;
+			}
+			return true;
+		});
 		//生成预览表格列
 		const exportPreviewColumns = computed(() => {
 			if (!exportPreviewData.value?.selectedFields || exportPreviewData.value.selectedFields.length === 0) {
@@ -2860,6 +2886,7 @@
 				if (previewDebounceTimer) {
 					clearTimeout(previewDebounceTimer);
 				}
+				exportPreviewLoading.value = true;
 				previewDebounceTimer = setTimeout(() => {
 					loadExportPreview();
 				}, 500);
@@ -2869,6 +2896,11 @@
 		watch(() => currentExportStep.value, (newStep: number) => {
 			if (newStep === 2 && exportConfig.value.selectedFields.length > 0) {
 				loadExportPreview();
+			}
+		});
+		watch(() => showExportDialog.value, (isOpen: boolean) => {
+			if (isOpen) {
+				currentExportStep.value = 1;
 			}
 		});
 		
@@ -2919,6 +2951,7 @@
 				}
 				saveExportConfigToStorage();
 				showExportDialog.value = false;
+				currentExportStep.value = 1;
 				message.success('导出成功');
 			} catch (error: any) {
 				console.error('导出失败', error);
@@ -2952,29 +2985,70 @@
 			
 			const loadingMessage = message.loading('正在导出...', { duration: 0 });
 			
-			const response = await exportKnowledgeItems(request);
-			
-			loadingMessage.destroy();
-			
-			const blob = new Blob([response], {
-				type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
-			});
-			
-			const url = window.URL.createObjectURL(blob);
-			const link = document.createElement('a');
-			link.href = url;
-			const fileName = exportConfig.value.fileName || `知识条目导出_${format(new Date(), 'yyyyMMdd_HHmmss')}.xlsx`;
-			link.download = fileName;
-			document.body.appendChild(link);
-			link.click();
-			document.body.removeChild(link);
-			window.URL.revokeObjectURL(url);
+			try {
+				const response = await exportKnowledgeItems(request);
+				loadingMessage.destroy();
+				if (!response || (response.status && response.status >= 400)) {
+					let errorMsg = 'Excel导出失败，请稍后重试';
+					if (response instanceof Blob) {
+						try {
+							const text = await response.text();
+							const errorJson = JSON.parse(text);
+							errorMsg = errorJson.msg || errorMsg;
+						} catch (e) {
+							errorMsg = `Excel导出失败 (HTTP ${response.status || 'unknown'})`;
+						}
+					}
+					throw new Error(errorMsg);
+				}
+				const contentType = response.headers?.['content-type'] || '';
+				if (!contentType.includes('application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')) {
+					let errorMsg = 'Excel导出失败：服务器返回了非Excel数据';
+					if (response instanceof Blob) {
+						try {
+							const text = await response.text();
+							const errorJson = JSON.parse(text);
+							errorMsg = errorJson.msg || errorMsg;
+						} catch (e) {
+						}
+					}
+					throw new Error(errorMsg);
+				}
+				//响应拦截器返回的就是Blob对象本身，直接使用
+				const blob = response instanceof Blob ? response : new Blob([response], {
+					type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+				});
+				if (!blob || blob.size === 0) {
+					throw new Error('Excel导出失败：服务器返回空数据');
+				}
+				const url = window.URL.createObjectURL(blob);
+				const link = document.createElement('a');
+				link.href = url;
+				const fileName = exportConfig.value.fileName || `知识条目导出_${format(new Date(), 'yyyyMMdd_HHmmss')}.xlsx`;
+				link.download = fileName;
+				document.body.appendChild(link);
+				link.click();
+				document.body.removeChild(link);
+				window.URL.revokeObjectURL(url);
+			} catch (error: any) {
+				loadingMessage.destroy();
+				let errorMsg = 'Excel导出失败，请稍后重试';
+				if (error?.response?.status >= 400) {
+					try {
+						const text = await error.response.data.text();
+						const errorJson = JSON.parse(text);
+						errorMsg = errorJson.msg || errorMsg;
+					} catch (e) {
+						errorMsg = error?.response?.statusText || error?.message || errorMsg;
+					}
+				} else if (error?.message) {
+					errorMsg = error.message;
+				}
+				throw new Error(errorMsg);
+			}
 		}
 		
 		async function handlePdfExport() {
-			const { jsPDF } = await import('jspdf');
-			const html2canvas = (await import('html2canvas')).default;
-			
 			const request: any = {
 				format: 'pdf',
 				exportRange: exportConfig.value.exportRange,
@@ -2983,6 +3057,7 @@
 				fieldFormats: exportConfig.value.fieldFormats,
 				fieldOrder: exportConfig.value.fieldOrder,
 				pdfOptions: exportConfig.value.pdfOptions,
+				fileName: exportConfig.value.fileName || undefined,
 			};
 			
 			if (exportConfig.value.exportRange === 'selected') {
@@ -2999,75 +3074,96 @@
 			const loadingMessage = message.loading('正在生成PDF...', { duration: 0 });
 			
 			try {
-				const previewResponse = await exportPreview(request);
-				
-				if (previewResponse.code !== 200 || !previewResponse.data) {
-					throw new Error('获取导出数据失败');
-				}
-				
-				const { sampleData, selectedFields: fieldInfos } = previewResponse.data;
-				
-				if (!sampleData || sampleData.length === 0) {
-					throw new Error('没有可导出的数据');
-				}
-				
-				const tempDiv = document.createElement('div');
-				tempDiv.style.position = 'absolute';
-				tempDiv.style.left = '-9999px';
-				tempDiv.style.width = '210mm';
-				tempDiv.style.padding = '20mm';
-				tempDiv.style.fontSize = '12px';
-				tempDiv.style.fontFamily = 'Arial, sans-serif';
-				tempDiv.style.backgroundColor = '#fff';
-				document.body.appendChild(tempDiv);
-				
-				let html = '<table style="width: 100%; border-collapse: collapse; margin-bottom: 20px;">';
-				html += '<thead><tr style="background-color: #f5f5f5;">';
-				for (const fieldInfo of fieldInfos) {
-					html += `<th style="border: 1px solid #ddd; padding: 8px; text-align: left;">${fieldInfo.label}</th>`;
-				}
-				html += '</tr></thead><tbody>';
-				for (const item of sampleData) {
-					html += '<tr>';
-					for (const fieldInfo of fieldInfos) {
-						const value = String(item[fieldInfo.key] || '').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-						html += `<td style="border: 1px solid #ddd; padding: 8px;">${value}</td>`;
-					}
-					html += '</tr>';
-				}
-				html += '</tbody></table>';
-				tempDiv.innerHTML = html;
-				
-				const canvas = await html2canvas(tempDiv, {
-					scale: 2,
-					useCORS: true,
-					backgroundColor: '#fff'
+				console.log('[PDF导出] 开始请求，参数:', request);
+				const response = await exportKnowledgeItems(request);
+				console.log('[PDF导出] 收到响应:', {
+					responseType: typeof response,
+					responseIsNull: response === null,
+					responseIsUndefined: response === undefined,
+					responseIsBlob: response instanceof Blob,
+					hasStatus: response && 'status' in response,
+					hasData: response && 'data' in response,
+					hasHeaders: response && 'headers' in response,
+					status: response?.status,
+					blobSize: response instanceof Blob ? response.size : 'N/A',
+					headers: response?.headers,
+					fullResponse: response
 				});
-				
-				document.body.removeChild(tempDiv);
-				
-				const imgData = canvas.toDataURL('image/png');
-				const pdf = new jsPDF('p', 'mm', 'a4');
-				const imgWidth = 210;
-				const pageHeight = 297;
-				const imgHeight = (canvas.height * imgWidth) / canvas.width;
-				let heightLeft = imgHeight;
-				let position = 0;
-				
-				pdf.addImage(imgData, 'PNG', 0, position, imgWidth, imgHeight);
-				heightLeft -= pageHeight;
-				
-				while (heightLeft >= 0) {
-					position = heightLeft - imgHeight;
-					pdf.addPage();
-					pdf.addImage(imgData, 'PNG', 0, position, imgWidth, imgHeight);
-					heightLeft -= pageHeight;
-				}
-				
-				const fileName = exportConfig.value.fileName || `知识条目导出_${format(new Date(), 'yyyyMMdd_HHmmss')}.pdf`;
-				pdf.save(fileName);
-			} finally {
 				loadingMessage.destroy();
+				if (!response || (response.status && response.status >= 400)) {
+					let errorMsg = 'PDF生成失败，请稍后重试';
+					if (response instanceof Blob) {
+						try {
+							const text = await response.text();
+							const errorJson = JSON.parse(text);
+							errorMsg = errorJson.msg || errorMsg;
+						} catch (e) {
+							errorMsg = `PDF生成失败 (HTTP ${response.status || 'unknown'})`;
+						}
+					}
+					throw new Error(errorMsg);
+				}
+				const contentType = response.headers?.['content-type'] || '';
+				if (!contentType.includes('application/pdf')) {
+					let errorMsg = 'PDF生成失败：服务器返回了非PDF数据';
+					if (response instanceof Blob) {
+						try {
+							const text = await response.text();
+							const errorJson = JSON.parse(text);
+							errorMsg = errorJson.msg || errorMsg;
+						} catch (e) {
+						}
+					}
+					throw new Error(errorMsg);
+				}
+				const warningsHeader = response.headers?.['x-export-warnings'];
+				const warnings = warningsHeader ? decodeURIComponent(warningsHeader).split(';') : [];
+				console.log('[PDF导出] 准备创建Blob:', {
+					responseIsBlob: response instanceof Blob,
+					responseSize: response instanceof Blob ? response.size : 'N/A',
+					responseType: response instanceof Blob ? response.type : 'N/A'
+				});
+				//响应拦截器返回的就是Blob对象本身，直接使用
+				const blob = response instanceof Blob ? response : new Blob([response], {
+					type: 'application/pdf'
+				});
+				console.log('[PDF导出] Blob创建完成:', {
+					blobType: blob.type,
+					blobSize: blob.size,
+					blobIsEmpty: blob.size === 0
+				});
+				if (!blob || blob.size === 0) {
+					console.error('[PDF导出] Blob为空或大小为0');
+					throw new Error('PDF生成失败：服务器返回空数据');
+				}
+				const url = window.URL.createObjectURL(blob);
+				const link = document.createElement('a');
+				link.href = url;
+				const fileName = exportConfig.value.fileName || `知识条目导出_${format(new Date(), 'yyyyMMdd_HHmmss')}.pdf`;
+				link.download = fileName;
+				document.body.appendChild(link);
+				link.click();
+				document.body.removeChild(link);
+				window.URL.revokeObjectURL(url);
+				if (warnings.length > 0) {
+					const warningsText = warnings.join('\n');
+					message.warning(`PDF导出完成，但有以下提示：\n${warningsText}`, { duration: 8000 });
+				}
+			} catch (error: any) {
+				loadingMessage.destroy();
+				let errorMsg = 'PDF生成失败，请稍后重试';
+				if (error?.response?.status >= 400) {
+					try {
+						const text = await error.response.data.text();
+						const errorJson = JSON.parse(text);
+						errorMsg = errorJson.msg || errorMsg;
+					} catch (e) {
+						errorMsg = error?.response?.statusText || error?.message || errorMsg;
+					}
+				} else if (error?.message) {
+					errorMsg = error.message;
+				}
+				throw new Error(errorMsg);
 			}
 		}
 		
@@ -6081,7 +6177,8 @@
 										<n-space vertical :size="16">
 										<!-- 导出信息摘要 -->
 										<n-card title="导出信息摘要" size="small">
-											<n-space vertical :size="8">
+											<n-spin :show="exportPreviewLoading" :description="false">
+												<n-space vertical :size="8">
 												<div class="export-summary-row">
 													<span class="summary-label">导出格式：</span>
 													<n-tag size="small" :type="exportConfig.format === 'excel' ? 'success' : 'info'">
@@ -6113,14 +6210,16 @@
 													<span class="summary-value">{{ exportPreviewData?.estimatedTime || 0 }} 秒</span>
 												</div>
 											</n-space>
+											</n-spin>
 										</n-card>
 										
 										<!-- 字段列表预览 -->
 										<n-card v-if="exportPreviewData?.selectedFields && exportPreviewData.selectedFields.length > 0" title="字段列表" size="small">
-											<n-space vertical :size="4">
+											<n-spin :show="exportPreviewLoading" :description="false">
+												<n-space vertical :size="4">
 												<div class="field-list-info">
-													<span>已选择 {{ exportPreviewData.selectedFields.length }} 个字段（按导出顺序）：</span>
-													<span style="color: #999; font-size: 12px; margin-left: 8px;">拖拽标签可调整顺序</span>
+													<span>已选择 {{ exportPreviewData.selectedFields.length }} 个字段<span v-if="allowFieldDrag">（按导出顺序）</span>：</span>
+													<span v-if="allowFieldDrag" style="color: #999; font-size: 12px; margin-left: 8px;">拖拽标签可调整顺序</span>
 												</div>
 												<div class="field-list-tags">
 													<n-tag
@@ -6128,22 +6227,23 @@
 														:key="field.key"
 														size="small"
 														:type="field.type === 'expanded' ? 'info' : field.type === 'dictConverted' ? 'warning' : 'default'"
-														:draggable="true"
-														:class="['drag-handle', { 'drag-over': dragOverIndex === index, 'dragging': draggedFieldIndex === index }]"
-														style="margin-right: 8px; margin-bottom: 8px; cursor: move; user-select: none; display: inline-flex; align-items: center; vertical-align: middle;"
-														@dragstart="handleDragStart(index, $event)"
-														@dragover="handleDragOver(index, $event)"
-														@dragleave="handleDragLeave"
-														@drop="handleDrop(index, $event)"
-														@dragend="handleDragEnd"
+														:draggable="allowFieldDrag"
+														:class="allowFieldDrag ? ['drag-handle', { 'drag-over': dragOverIndex === index, 'dragging': draggedFieldIndex === index }] : ''"
+														:style="allowFieldDrag ? 'margin-right: 8px; margin-bottom: 8px; cursor: move; user-select: none; display: inline-flex; align-items: center; vertical-align: middle;' : 'margin-right: 8px; margin-bottom: 8px; display: inline-flex; align-items: center; vertical-align: middle;'"
+														@dragstart="allowFieldDrag && handleDragStart(index, $event)"
+														@dragover="allowFieldDrag && handleDragOver(index, $event)"
+														@dragleave="allowFieldDrag && handleDragLeave()"
+														@drop="allowFieldDrag && handleDrop(index, $event)"
+														@dragend="allowFieldDrag && handleDragEnd($event)"
 													>
-														<span style="margin-right: 4px; display: inline-flex; align-items: center;">⋮⋮</span>
+														<span v-if="allowFieldDrag" style="margin-right: 4px; display: inline-flex; align-items: center;">⋮⋮</span>
 														<span style="display: inline-flex; align-items: center;">{{ index + 1 }}. {{ field.label }}</span>
 														<span v-if="field.type === 'expanded'" style="color: #999; font-size: 11px; display: inline-flex; align-items: center;">（展开字段）</span>
 														<span v-else-if="field.type === 'dictConverted'" style="color: #999; font-size: 11px; display: inline-flex; align-items: center;">（字典转换）</span>
 													</n-tag>
 												</div>
 											</n-space>
+											</n-spin>
 										</n-card>
 										
 										<!-- 样本数据预览 -->
@@ -6158,46 +6258,47 @@
 													</n-button>
 												</n-space>
 											</template>
-											<div v-if="exportPreviewData">
-												<div v-if="!exportPreviewData.sampleData || exportPreviewData.sampleData.length === 0" class="preview-empty">
-													<n-empty description="暂无预览数据" />
-												</div>
-												<div v-else>
-													<div class="preview-data-info" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
-														<div>
-															<span>预览前 {{ exportPreviewData.sampleData.length }} 条真实数据，共 {{ exportPreviewData.totalCount }} 条</span>
-															<span v-if="exportConfig.format === 'excel'" style="color: #999; font-size: 12px; margin-left: 8px;">
-																（Excel将包含表头样式、交替行颜色{{ exportConfig.excelOptions?.conditionalFormatting ? '、条件格式' : '' }}）
-															</span>
+											<n-spin :show="exportPreviewLoading" :description="false" style="min-height: 200px;">
+												<div v-if="exportPreviewData">
+													<div v-if="!exportPreviewData.sampleData || exportPreviewData.sampleData.length === 0" class="preview-empty">
+														<n-empty description="暂无预览数据" />
+													</div>
+													<div v-else>
+														<div class="preview-data-info" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+															<div>
+																<span>预览前 {{ exportPreviewData.sampleData.length }} 条真实数据，共 {{ exportPreviewData.totalCount }} 条</span>
+																<span v-if="exportConfig.format === 'excel'" style="color: #999; font-size: 12px; margin-left: 8px;">
+																	（Excel将包含表头样式、交替行颜色{{ exportConfig.excelOptions?.conditionalFormatting ? '、条件格式' : '' }}）
+																</span>
+															</div>
+															<n-button 
+																v-if="exportConfig.format === 'excel'" 
+																size="small" 
+																quaternary 
+																@click="handleResetColumnWidths"
+															>
+																恢复默认列宽
+															</n-button>
 														</div>
-														<n-button 
-															v-if="exportConfig.format === 'excel'" 
-															size="small" 
-															quaternary 
-															@click="handleResetColumnWidths"
-														>
-															恢复默认列宽
-														</n-button>
-													</div>
-													<div class="preview-table-container" :class="{ 'excel-preview': exportConfig.format === 'excel' }" ref="previewTableRef">
-														<n-scrollbar x-scrollable style="width: 100%;">
-															<n-data-table
-																:columns="exportPreviewColumns"
-																:data="exportPreviewData.sampleData"
-																:max-height="300"
-																:scroll-x="previewTableScrollX"
-																bordered
-																size="small"
-																:row-class-name="(row: any, index: number) => index % 2 === 0 ? 'even-row' : 'odd-row'"
-																@update:sorter="() => {}"
-															/>
-														</n-scrollbar>
+														<div class="preview-table-container" :class="{ 'excel-preview': exportConfig.format === 'excel' }" ref="previewTableRef">
+															<n-scrollbar x-scrollable style="width: 100%;">
+																<n-data-table
+																	:columns="exportPreviewColumns"
+																	:data="exportPreviewData.sampleData"
+																	:scroll-x="previewTableScrollX"
+																	bordered
+																	size="small"
+																	:row-class-name="(row: any, index: number) => index % 2 === 0 ? 'even-row' : 'odd-row'"
+																	@update:sorter="() => {}"
+																/>
+															</n-scrollbar>
+														</div>
 													</div>
 												</div>
-											</div>
-											<div v-else class="preview-empty">
-												<n-empty description="请先选择至少一个字段" />
-											</div>
+												<div v-else class="preview-empty">
+													<n-empty description="请先选择至少一个字段" />
+												</div>
+											</n-spin>
 										</n-card>
 										
 										<!-- Excel格式样式说明 -->
@@ -6223,8 +6324,72 @@
 										</n-card>
 										
 										<!-- PDF格式预览 -->
-										<n-card v-if="exportConfig.format === 'pdf' && exportPreviewData?.previewHtml" title="PDF格式预览" size="small">
-											<div class="pdf-preview-container" v-html="exportPreviewData.previewHtml"></div>
+										<n-card v-if="exportConfig.format === 'pdf'" title="PDF格式预览" size="small">
+											<template #header-extra>
+												<n-space align="center" :size="8">
+													<n-button size="small" quaternary @click="loadExportPreview" :loading="exportPreviewLoading">
+														<template #icon>
+															<SvgIcon icon="ri:refresh-line" />
+														</template>
+														刷新预览
+													</n-button>
+													<n-tag v-if="exportPreviewData?.pdfFormatType === 'report'" type="info" size="small">
+														<span style="display: inline-flex; align-items: center;">
+															<SvgIcon icon="ri:file-text-line" style="font-size: 12px; margin-right: 6px;" />
+															<span>报告格式</span>
+														</span>
+													</n-tag>
+													<n-tag v-else-if="exportPreviewData?.pdfFormatType === 'table'" type="success" size="small">
+														<span style="display: inline-flex; align-items: center;">
+															<SvgIcon icon="ri:table-line" style="font-size: 12px; margin-right: 6px;" />
+															<span>表格格式</span>
+														</span>
+													</n-tag>
+												</n-space>
+											</template>
+											<n-spin :show="exportPreviewLoading" :description="false" style="min-height: 300px;">
+												<div v-if="exportPreviewData?.previewHtml">
+													<n-space vertical :size="12">
+														<!-- 格式切换控件 -->
+														<div style="padding: 12px; background-color: #f5f7fa; border-radius: 4px; border: 1px solid #e5e7eb;">
+															<div style="display: flex; align-items: center; margin-bottom: 10px;">
+																<span style="font-weight: 500; font-size: 13px; color: #333;">导出格式选择：</span>
+															</div>
+															<n-radio-group v-model:value="exportConfig.pdfOptions.formatType" size="small" @update:value="loadExportPreview">
+																<n-space :size="20" style="flex-wrap: wrap;">
+																	<n-radio :value="null">
+																		<span style="display: inline-flex; align-items: center;">自动选择</span>
+																	</n-radio>
+																	<n-radio value="report">
+																		<span style="display: inline-flex; align-items: center;">
+																			<SvgIcon icon="ri:file-text-line" style="font-size: 14px; margin-right: 6px; vertical-align: middle;" />
+																			<span>报告格式</span>
+																		</span>
+																	</n-radio>
+																	<n-radio value="table">
+																		<span style="display: inline-flex; align-items: center;">
+																			<SvgIcon icon="ri:table-line" style="font-size: 14px; margin-right: 6px; vertical-align: middle;" />
+																			<span>表格格式</span>
+																		</span>
+																	</n-radio>
+																</n-space>
+															</n-radio-group>
+														</div>
+														<div v-if="exportPreviewData.pdfFormatType === 'report'" class="pdf-format-tip">
+															<SvgIcon icon="ri:information-line" style="font-size: 14px; margin-right: 4px; color: #1890ff;" />
+															<span>报告格式：每个条目以卡片形式展示，适合正式文档和详细阅读</span>
+														</div>
+														<div v-else-if="exportPreviewData.pdfFormatType === 'table'" class="pdf-format-tip">
+															<SvgIcon icon="ri:information-line" style="font-size: 14px; margin-right: 4px; color: #52c41a;" />
+															<span>表格格式：数据以表格形式展示，适合快速浏览和数据对比</span>
+														</div>
+														<div :class="['pdf-preview-container', exportPreviewData.pdfFormatType === 'report' ? 'pdf-preview-report' : 'pdf-preview-table']" v-html="exportPreviewData.previewHtml"></div>
+													</n-space>
+												</div>
+												<div v-else class="preview-empty">
+													<n-empty description="请先选择至少一个字段" />
+												</div>
+											</n-spin>
 										</n-card>
 										</n-space>
 									</n-scrollbar>
@@ -6284,7 +6449,7 @@
 										标签类型
 									</span>
 									<n-checkbox-group v-model:value="batchEditTagsSelectedTagTypes">
-										<n-space :size="12">
+										<n-space :size="16">
 											<n-checkbox value="system">
 												<span class="type-label">系统标签</span>
 											</n-checkbox>
@@ -6323,7 +6488,7 @@
 											<n-checkbox
 												:checked="batchEditTagsSelectedTags.has(tag.name)"
 												:indeterminate="getBatchEditTagState(tag.name) === 'some'"
-												@update:checked="() => toggleBatchEditTag(tag.name)"
+												@update:checked="(checked) => toggleBatchEditTag(tag.name, checked)"
 											>
 												<div class="tag-card-content">
 													<div class="tag-name-row">
@@ -6361,7 +6526,7 @@
 											<n-checkbox
 												:checked="batchEditTagsSelectedTags.has(tag.name)"
 												:indeterminate="getBatchEditTagState(tag.name) === 'some'"
-												@update:checked="() => toggleBatchEditTag(tag.name)"
+												@update:checked="(checked) => toggleBatchEditTag(tag.name, checked)"
 											>
 												<div class="tag-card-content">
 													<div class="tag-name-row">
@@ -6402,7 +6567,7 @@
 											<n-checkbox
 												:checked="batchEditTagsSelectedTags.has(tag.name)"
 												:indeterminate="getBatchEditTagState(tag.name) === 'some'"
-												@update:checked="() => toggleBatchEditTag(tag.name)"
+												@update:checked="(checked) => toggleBatchEditTag(tag.name, checked)"
 											>
 												<div class="tag-card-content">
 													<div class="tag-name-row">
@@ -6440,7 +6605,7 @@
 											<n-checkbox
 												:checked="batchEditTagsSelectedTags.has(tag.name)"
 												:indeterminate="getBatchEditTagState(tag.name) === 'some'"
-												@update:checked="() => toggleBatchEditTag(tag.name)"
+												@update:checked="(checked) => toggleBatchEditTag(tag.name, checked)"
 											>
 												<div class="tag-card-content">
 													<div class="tag-name-row">
@@ -8937,30 +9102,125 @@
 			text-align: center;
 		}
 		
-		.pdf-preview-container {
-			border: 1px solid #e5e5e5;
+		.pdf-format-tip {
+			display: flex;
+			align-items: center;
+			padding: 8px 12px;
+			background-color: #f0f7ff;
+			border: 1px solid #d4e8ff;
 			border-radius: 4px;
-			padding: 16px;
-			background-color: #fff;
-			max-height: 500px;
-			overflow: auto;
+			font-size: 12px;
+			color: #1890ff;
 		}
-		
-		.pdf-preview-container table {
+		.pdf-preview-container {
+			border: 1px solid #e1e8ed;
+			border-radius: 6px;
+			padding: 20px;
+			background-color: #fafafa;
+			box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.04);
+		}
+		.pdf-preview-table {
+			background-color: #fff;
+			padding: 0;
+		}
+		.pdf-preview-table > div {
+			padding: 0;
+		}
+		.pdf-preview-table table {
 			width: 100%;
 			border-collapse: collapse;
+			font-size: 12px;
+			margin: 0;
 		}
-		
-		.pdf-preview-container table th,
-		.pdf-preview-container table td {
-			border: 1px solid #ddd;
-			padding: 8px;
+		.pdf-preview-table table th,
+		.pdf-preview-table table td {
+			border: 1px solid #dee2e6;
+			padding: 11px 10px;
 			text-align: left;
 		}
-		
-		.pdf-preview-container table th {
-			background-color: #f5f5f5;
+		.pdf-preview-table table th {
+			background: linear-gradient(to bottom, #f8f9fa 0%, #e9ecef 100%);
 			font-weight: 600;
+			text-align: center;
+			position: sticky;
+			top: 0;
+			z-index: 10;
+			border-bottom: 2px solid #adb5bd;
+			color: #212529;
+			font-size: 12px;
+			letter-spacing: 0.3px;
+		}
+		.pdf-preview-table table tbody tr:nth-child(even) {
+			background-color: #f8f9fa;
+		}
+		.pdf-preview-table table tbody tr:nth-child(odd) {
+			background-color: #ffffff;
+		}
+		.pdf-preview-table table tbody tr:hover {
+			background-color: #e7f3ff;
+			box-shadow: inset 0 0 0 1px #b3d9ff;
+		}
+		.pdf-preview-table table td {
+			color: #495057;
+			line-height: 1.5;
+		}
+		.pdf-preview-report {
+			background-color: #fafafa;
+			padding: 8px;
+		}
+		.pdf-preview-report > div {
+			font-family: "Microsoft YaHei", "SimSun", "Helvetica Neue", Arial, sans-serif;
+		}
+		.pdf-preview-report h3 {
+			color: #1890ff;
+			font-size: 17px;
+			font-weight: 600;
+			margin: 0;
+			line-height: 1.4;
+		}
+		.pdf-preview-report div[style*="border: 1px solid"] {
+			transition: all 0.3s ease;
+		}
+		.pdf-preview-report div[style*="border: 1px solid"]:hover {
+			box-shadow: 0 4px 16px rgba(0, 0, 0, 0.1);
+			transform: translateY(-1px);
+		}
+		.pdf-preview-container :deep(.n-radio) {
+			display: inline-flex;
+			align-items: center;
+		}
+		.pdf-preview-container :deep(.n-radio__label) {
+			display: inline-flex;
+			align-items: center;
+			gap: 6px;
+		}
+		.pdf-preview-container :deep(.n-radio__label span) {
+			display: inline-flex;
+			align-items: center;
+		}
+		.pdf-preview-container :deep(.n-tag) {
+			display: inline-flex;
+			align-items: center;
+		}
+		.pdf-preview-container :deep(.n-tag span) {
+			display: inline-flex;
+			align-items: center;
+		}
+		.preview-panel :deep(.n-spin-container) {
+			position: relative;
+		}
+		.preview-panel :deep(.n-spin-content) {
+			opacity: 1;
+			transition: opacity 0.2s ease;
+		}
+		.preview-panel :deep(.n-spin--show .n-spin-content) {
+			opacity: 0.6;
+		}
+		.preview-panel :deep(.n-spin) {
+			position: relative;
+		}
+		.preview-panel :deep(.n-spin__description) {
+			display: none;
 		}
 		
 		.export-dialog-actions {
@@ -8996,6 +9256,42 @@
 			border: 1px solid #e0e0e0;
 		}
 		
+		.filter-group {
+			display: flex;
+			align-items: center;
+			gap: 12px;
+		}
+		
+		.filter-label {
+			display: flex;
+			align-items: center;
+			gap: 6px;
+			font-size: 14px;
+			color: #323130;
+			white-space: nowrap;
+		}
+		
+		.filter-icon {
+			font-size: 16px;
+			color: #605e5c;
+		}
+		
+		.sort-group {
+			display: flex;
+			align-items: center;
+			gap: 8px;
+		}
+		
+		.sort-label {
+			font-size: 14px;
+			color: #323130;
+			white-space: nowrap;
+		}
+		
+		.type-label {
+			margin-left: 4px;
+		}
+		
 		.batch-edit-tags-list {
 			margin-bottom: 20px;
 		}
@@ -9022,13 +9318,13 @@
 		
 		.batch-edit-tag-card :deep(.n-checkbox__label) {
 			width: 100%;
-			padding-left: 0;
+			padding-left: 8px;
 		}
 		
 		.tag-card-content {
 			display: flex;
 			flex-direction: column;
-			gap: 4px;
+			gap: 6px;
 		}
 		
 		.tag-name-row {
@@ -9036,6 +9332,7 @@
 			justify-content: space-between;
 			align-items: center;
 			gap: 8px;
+			margin-bottom: 2px;
 		}
 		
 		.tag-name {
@@ -9080,7 +9377,7 @@
 		}
 		
 		.tag-state-hint {
-			margin-top: 4px;
+			margin-top: 6px;
 		}
 		
 		.state-text {
