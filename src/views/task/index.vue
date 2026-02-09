@@ -247,7 +247,7 @@ const fetchTemplateList = async () => {
 	templateLoading.value = true
 	try {
 		const res = await fetchSysTemplateList({
-			pageNum: 1,
+      pageNum: 1,
 			pageSize: 100,
 			status: '0',
 			templateName: searchTemplateName.value,
@@ -321,25 +321,25 @@ const openCreateModal = () => {
 // =================【核心修正：编辑回显逻辑】=================
 const openEditModal = (task: Task) => {
 	isEdit.value = true
-	// 1. 初始化普通文件
+
+	// 1. 初始化文件列表
 	uploadedFiles.value = task.inputFiles ? JSON.parse(JSON.stringify(task.inputFiles)) : []
 
-	// 2. 【关键】获取模板ID
-	// 兼容后端返回驼峰(templateId)或下划线(template_id)
+	// 2. 处理模板回显
+	// 因为后端现在通过 JOIN 返回了 templateName，我们可以直接用
 	const tplId = (task as any).templateId || (task as any).template_id
+	const tplName = (task as any).templateName || (task as any).template_name
 
-	// 3. 【强制回显】如果存在ID，手动创建一个虚拟文件标签
-	// 这样 computed 属性 `currentTemplateId` 就能检测到它，并在下方显示文字
-	// 同时也解决了“列表里不显示模板”的问题
 	if (tplId) {
-		// 由于后端XML没有join查询名称，我们用 ID 拼接一个默认名称
-		const tplName = (task as any).templateName || (task as any).template_name || `模板 (编号: ${tplId})`
+		// 构造显示名称，如果有名字就显示名字，没有就显示编号
+		const displayName = tplName ? `[模板] ${tplName}` : `[模板] 编号:${tplId}`
 
-		// 避免重复添加
+		// 🔥 核心逻辑：把它伪装成一个文件，推入 uploadedFiles
+		// 这样它就会自动显示在现有的文件列表中，完全不需要改 UI 布局
 		if (!uploadedFiles.value.some(f => f.id === `tpl_${tplId}`)) {
 			uploadedFiles.value.push({
 				id: `tpl_${tplId}`,
-				name: `[已选] ${tplName}`, // 这里会显示在列表里
+				name: displayName,
 				url: '',
 				type: 'template',
 				size: 0,
@@ -348,7 +348,14 @@ const openEditModal = (task: Task) => {
 		}
 	}
 
-	currentTask.value = { ...task, inputFiles: uploadedFiles.value, projectId: task.projectId || null, id: task.id }
+	// 3. 赋值
+	currentTask.value = {
+		...task,
+		inputFiles: uploadedFiles.value, // 使用包含模板的列表
+		projectId: task.projectId || null,
+		id: task.id
+	}
+
 	if (uploadRef.value) uploadRef.value.clear()
 	showModal.value = true
 }
