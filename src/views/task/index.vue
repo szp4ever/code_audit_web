@@ -319,43 +319,30 @@ const openCreateModal = () => {
 }
 
 // =================【核心修正：编辑回显逻辑】=================
+// 替换原有的 openEditModal 函数
 const openEditModal = (task: Task) => {
 	isEdit.value = true
-
-	// 1. 初始化文件列表
 	uploadedFiles.value = task.inputFiles ? JSON.parse(JSON.stringify(task.inputFiles)) : []
 
-	// 2. 处理模板回显
-	// 因为后端现在通过 JOIN 返回了 templateName，我们可以直接用
+	// 获取 ID 和 名称 (兼容不同命名风格)
 	const tplId = (task as any).templateId || (task as any).template_id
 	const tplName = (task as any).templateName || (task as any).template_name
 
+	// 如果有模板ID，手动加一个标签
 	if (tplId) {
-		// 构造显示名称，如果有名字就显示名字，没有就显示编号
+		// 如果后端传了名字，就用名字；没传就显示编号
 		const displayName = tplName ? `[模板] ${tplName}` : `[模板] 编号:${tplId}`
 
-		// 🔥 核心逻辑：把它伪装成一个文件，推入 uploadedFiles
-		// 这样它就会自动显示在现有的文件列表中，完全不需要改 UI 布局
 		if (!uploadedFiles.value.some(f => f.id === `tpl_${tplId}`)) {
 			uploadedFiles.value.push({
 				id: `tpl_${tplId}`,
 				name: displayName,
-				url: '',
-				type: 'template',
-				size: 0,
-				uploadTime: ''
+				url: '', type: 'template', size: 0, uploadTime: ''
 			})
 		}
 	}
 
-	// 3. 赋值
-	currentTask.value = {
-		...task,
-		inputFiles: uploadedFiles.value, // 使用包含模板的列表
-		projectId: task.projectId || null,
-		id: task.id
-	}
-
+	currentTask.value = { ...task, inputFiles: uploadedFiles.value, projectId: task.projectId || null, id: task.id }
 	if (uploadRef.value) uploadRef.value.clear()
 	showModal.value = true
 }
@@ -422,13 +409,17 @@ const handleFolderChange = async (event: Event) => {
 }
 
 const saveTask = async () => {
-	if (!currentTask.value.title.trim()) return ms.warning('请输入任务标题')
-	if (!currentTask.value.taskType) return ms.warning('请选择任务类型')
+	if (!currentTask.value.title.trim()) return ms.warning('请输入标题')
+	if (!currentTask.value.taskType) return ms.warning('请选择类型')
 
 	const realFiles: TaskFile[] = []
-	let selectedTemplateId: string | number | undefined = undefined
+
+	// 🔥【关键修改】默认值改为 null。
+	// 这样如果下方循环没找到模板，selectedTemplateId 就是 null，传给后端就能把数据库里的 ID 清空。
+	let selectedTemplateId: string | number | null = null
 
 	uploadedFiles.value.forEach((f) => {
+		// 检查是否是模板文件（以 tpl_ 开头）
 		if (f.id && f.id.toString().startsWith('tpl_')) {
 			selectedTemplateId = f.id.toString().replace('tpl_', '')
 		} else {
@@ -436,33 +427,23 @@ const saveTask = async () => {
 		}
 	})
 
+	// 构造请求数据
 	const taskData: any = {
 		...currentTask.value,
 		inputFiles: realFiles,
-		templateId: selectedTemplateId
+		templateId: selectedTemplateId // 这里如果是 null，后端就会把字段置空
 	}
 
 	try {
-		let res
-		if (isEdit.value && currentTask.value.id) {
-			res = await updateTask(currentTask.value.id, taskData)
-		} else {
-			res = await createTask(taskData)
-		}
+		const res = isEdit.value && currentTask.value.id
+			? await updateTask(currentTask.value.id, taskData)
+			: await createTask(taskData)
 
-		if (res && res.code === 200) {
+		if (res?.code === 200) {
 			ms.success(isEdit.value ? '更新成功' : '创建成功')
-			showModal.value = false
-			uploadedFiles.value = []
-			await loadTasks()
-		} else {
-			ms.error(res?.msg || '操作失败')
-		}
-	} catch (e: any) {
-		if(isEdit.value) updateTaskLocal({...taskData, id: currentTask.value.id})
-		else createTaskLocal(taskData)
-		showModal.value = false; await loadTasks()
-	}
+			showModal.value = false; uploadedFiles.value = []; await loadTasks()
+		} else { ms.error(res?.msg || '操作失败') }
+	} catch (e: any) { ms.error('操作失败') }
 }
 
 const createTaskLocal = (task: any) => { /* 略 */ }
