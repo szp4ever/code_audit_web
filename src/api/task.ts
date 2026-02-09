@@ -52,6 +52,7 @@ export interface Task {
   tags?: string[]
 
   templateId?: number | string // 上传的模板ID
+  templateName?: string
 }
 
 // 创建任务
@@ -208,6 +209,7 @@ export interface Vulnerability {
   fixSuggestion: string // 修复建议
   category?: string // 漏洞分类
   createdAt?: string
+
 }
 
 // 任务漏洞详情响应接口
