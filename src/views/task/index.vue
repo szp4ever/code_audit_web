@@ -470,7 +470,10 @@ const startProgressTimer = () => {
 		tasks.value.forEach(t => {
 			if (t.id && [TaskStatus.IN_PROGRESS, TaskStatus.PENDING].includes(t.status)) {
 				const cur = taskProgressMap.value.get(t.id) || 0
-				if (cur < 99) taskProgressMap.value.set(t.id, Math.min(99, cur + Math.random() * 2 + 1))
+				if (cur < 99) {
+					let nextVal = cur + Math.random() * 2 + 1
+					taskProgressMap.value.set(t.id, Number(Math.min(99, nextVal).toFixed(1)))
+				}
 			}
 		})
 	}, progressInterval.value)
@@ -506,15 +509,69 @@ const columns = [
 	{ title: '状态/进度', key: 'status', width: 100, render: (row: Task) => {
 			if (row.status === TaskStatus.COMPLETED) return h(NTag, { type: 'success', size: 'small' }, { default: () => '已完成' })
 			if (row.status === TaskStatus.CANCELLED) return h(NTag, { type: 'error', size: 'small' }, { default: () => '已取消' })
-			const p = getTaskProgress(row)
+			const rawProgress = getTaskProgress(row)
+			const p = Number(rawProgress.toFixed(1))
 			return h('div', { style: 'display: flex; flex-direction: column; gap: 4px; width: 100%' }, [
 				h(NProgress, { percentage: p, height: 8, showIndicator: true }),
 				h('span', { style: 'font-size: 12px; color: #666' }, `${getProgressText(p, row.status)} ${p}%`)
 			])
 		}},
 	{ title: '漏洞总数', key: 'vulnerability_num', width: 100, render: (row: Task) => h('span', { style: { color: '#D03050', fontWeight: '800' } }, taskVulnerabilityCountMap.value.get(row.id!) || 0) },
-	{ title: '上传文件', key: 'inputFiles', width: 150, render: (row: Task) => h(NSpace, { size: 'small', vertical: true }, { default: () => (row.inputFiles || []).map(f => h(NTag, { size: 'small', type: 'info' }, { default: () => f.name })) }) },
-	{ title: '返回文件', key: 'outputFiles', width: 150, render: (row: Task) => h(NSpace, { size: 'small', vertical: true }, { default: () => (row.outputFiles || []).map(f => h(NButton, { size: 'small', type: 'primary', onClick: () => handleDownloadFile(f) }, { icon: () => h(NIcon, null, { default: () => h(DownloadOutline) }), default: () => '下载' })) }) },
+
+	{
+		title: '上传文件',
+		key: 'inputFiles',
+		width: 150,
+		render: (row: Task) => {
+			const files = row.inputFiles || []
+			// 1. 截取前 5 个文件
+			const displayFiles = files.slice(0, 5)
+
+			// 2. 渲染前 5 个文件的标签
+			const tags = displayFiles.map(f =>
+				h(NTag, { size: 'small', type: 'info' }, { default: () => f.name })
+			)
+
+			// 3. 如果总数超过 5 个，追加提示标签
+			if (files.length > 5) {
+				tags.push(
+					h(NTag, { size: 'small', type: 'default', style: 'border-style: dashed; color: #666;' }, {
+						default: () => `共 ${files.length} 个文件`
+					})
+				)
+			}
+			return h(NSpace, { size: 'small', vertical: true }, { default: () => tags })
+		}
+	},
+	{
+		title: '返回文件',
+		key: 'outputFiles',
+		width: 150,
+		render: (row: Task) => {
+			const files = row.outputFiles || []
+			// 1. 截取前 5 个返回文件
+			const displayFiles = files.slice(0, 5)
+
+			// 2. 渲染前 5 个下载按钮
+			const btns = displayFiles.map(f =>
+				h(NButton, { size: 'small', type: 'primary', onClick: () => handleDownloadFile(f) }, {
+					icon: () => h(NIcon, null, { default: () => h(DownloadOutline) }),
+					default: () => '下载'
+				})
+			)
+
+			// 3. 如果总数超过 5 个，追加提示标签
+			if (files.length > 5) {
+				btns.push(
+					h(NTag, { size: 'small', type: 'default', style: 'border-style: dashed; color: #666;' }, {
+						default: () => `共 ${files.length} 个文件`
+					})
+				)
+			}
+			return h(NSpace, { size: 'small', vertical: true }, { default: () => btns })
+		}
+	},
+
 	{ title: '创建时间', key: 'createdAt', width: 150, render: (row: Task) => row.createdAt ? new Date(row.createdAt).toLocaleString('zh-CN') : '-' },
 	{ title: '操作', key: 'actions', width: 320, render: (row: Task) => {
 			const btns = [h(NButton, { size: 'small', type: 'primary', onClick: () => openEditModal(row) }, { icon: () => h(NIcon, null, { default: () => h(CreateOutline) }), default: () => '编辑' })]
@@ -528,7 +585,31 @@ const columns = [
 		}}
 ]
 
-onMounted(async () => { await loadProjects(); await loadTasks() })
+const goBackToProject = () => {
+	// 清空过滤条件，防止污染后续状态
+	filterProjectId.value = null
+
+	// 推荐直接返回上一页
+	router.back()
+
+	// 或者指定路由跳转（如果你的项目管理路由是 /project/index）
+	// router.push({ path: '/project/index' })
+}
+
+onMounted(async () => {
+	// 1. 从 URL 路由参数中获取 projectId
+	const queryProjectId = route.query.projectId
+	if (queryProjectId) {
+		// 赋值给过滤变量，这样 loadTasks 时就会自动带上这个参数
+		filterProjectId.value = String(queryProjectId)
+	}
+
+	// 2. 加载项目列表数据（用于下拉框等）
+	await loadProjects()
+
+	// 3. 加载任务列表数据
+	await loadTasks()
+})
 onUnmounted(() => stopPolling())
 </script>
 
