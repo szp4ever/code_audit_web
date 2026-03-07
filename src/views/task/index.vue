@@ -7,6 +7,7 @@ import {
 	NButton, NCard, NDataTable, NDivider, NEmpty, NForm, NFormItem, NGrid,
 	NGridItem, NIcon, NInput, NMessageProvider, NModal, NPopconfirm, NProgress,
 	NScrollbar, NSelect, NSpace, NSpin, NTag, NText, NUpload,
+	NStatistic, NNumberAnimation,
 	useMessage
 } from 'naive-ui'
 import { SvgIcon } from '@/components/common'
@@ -19,7 +20,8 @@ import {
 import { fetchProjectList, Project } from '@/api/project'
 import {
 	AddOutline, TrashOutline, CreateOutline, ArrowBackOutline, StopOutline,
-	RefreshOutline, DocumentTextOutline, CheckmarkCircleOutline, SearchOutline, DownloadOutline
+	RefreshOutline, DocumentTextOutline, CheckmarkCircleOutline, SearchOutline, DownloadOutline,
+	ExpandOutline, ContractOutline
 } from '@vicons/ionicons5'
 import { getToken } from '@/store/modules/auth/helper'
 import { useRoute, useRouter } from 'vue-router'
@@ -90,11 +92,13 @@ const currentTask = ref<Task>({
 	inputFiles: []
 })
 
-// 漏洞详情
+
+// 漏洞详情与放大状态
 const showVulnerabilityModal = ref(false)
 const vulnerabilityLoading = ref(false)
 const vulnerabilityDetail = ref<TaskVulnerabilityDetail | null>(null)
 const currentTaskId = ref<number | string | null>(null)
+const isFullscreen = ref(false)
 
 // 模板库相关
 const showTemplateModal = ref(false)
@@ -139,7 +143,6 @@ const priorityLabel = (p: TaskPriority) => ({ [TaskPriority.LOW]: '低', [TaskPr
 const taskTypeLabel = (t: TaskType) => ({ [TaskType.CODE_STANDARD_CHECK]: '编码规范检查', [TaskType.DATA_SECURITY_AUDIT]: '数据安全审计', [TaskType.DEPENDENCY_ANALYSIS]: '依赖关系分析', [TaskType.COMPLIANCE_AUDIT]: '合规审计', [TaskType.OTHER]: '其他' }[t] || t)
 
 // --- 核心逻辑 ---
-
 const loadProjects = async () => {
 	try {
 		const response = await fetchProjectList({ currentPage: 1, pageSize: 1000 })
@@ -214,12 +217,6 @@ const loadTasks = async () => {
 	} finally { loading.value = false }
 }
 
-const refreshVulnerabilityCount = async (id?: string | number) => {
-	if (!id) return
-	const res = await getTaskVulnerabilities(id)
-	if (res?.code === 200) taskVulnerabilityCountMap.value.set(id, res.data?.totalCount || 0)
-}
-
 const loadTasksFromLocal = () => {
 	try {
 		const localTasks = localStorage.getItem('tasks')
@@ -231,11 +228,6 @@ const loadTasksFromLocal = () => {
 	} catch (e) {}
 }
 
-const saveTasksToLocal = (taskList: Task[]) => {
-	try { localStorage.setItem('tasks', JSON.stringify(taskList)) } catch (e) {}
-}
-
-// =================【模板库逻辑 (下划线格式适配)】=================
 const openTemplateModal = () => {
 	searchTemplateName.value = ''
 	searchTemplateType.value = null
@@ -247,7 +239,7 @@ const fetchTemplateList = async () => {
 	templateLoading.value = true
 	try {
 		const res = await fetchSysTemplateList({
-      pageNum: 1,
+			pageNum: 1,
 			pageSize: 100,
 			status: '0',
 			templateName: searchTemplateName.value,
@@ -263,8 +255,6 @@ const fetchTemplateList = async () => {
 
 const handleSelectTemplate = (tpl: any) => {
 	const now = new Date().toISOString()
-
-	// 使用下划线读取字段 (匹配数据库)
 	let fileName = tpl.template_name || '未命名模板'
 	let fileUrl = tpl.file_path || ''
 	let fileType = ''
@@ -286,7 +276,7 @@ const handleSelectTemplate = (tpl: any) => {
 	uploadedFiles.value = uploadedFiles.value.filter(f => !f.id.toString().startsWith('tpl_'))
 
 	const newFile: TaskFile = {
-		id: `tpl_${tpl.template_id}`, // ID前缀
+		id: `tpl_${tpl.template_id}`,
 		name: `[模板] ${fileName}`,
 		url: fileUrl,
 		type: fileType,
@@ -300,17 +290,11 @@ const handleSelectTemplate = (tpl: any) => {
 	showTemplateModal.value = false
 }
 
-// =================【新增：实时计算当前模板ID (用于显示)】=================
-// 用于在“已上传文件”下方显示 ID
 const currentTemplateId = computed(() => {
-	// 从上传文件列表中查找以 'tpl_' 开头的 ID
 	const tplFile = uploadedFiles.value.find(f => f.id && f.id.toString().startsWith('tpl_'))
-	// 如果找到，去掉 'tpl_' 前缀返回 ID
 	return tplFile ? tplFile.id.toString().replace('tpl_', '') : null
 })
-// =====================================================================
 
-// 模态框逻辑
 const openCreateModal = () => {
 	isEdit.value = false; uploadedFiles.value = []
 	currentTask.value = { title: '', description: '', priority: TaskPriority.MEDIUM, taskType: TaskType.OTHER, projectId: filterProjectId.value || null, tags: [], inputFiles: [] }
@@ -318,21 +302,15 @@ const openCreateModal = () => {
 	showModal.value = true
 }
 
-// =================【核心修正：编辑回显逻辑】=================
-// 替换原有的 openEditModal 函数
 const openEditModal = (task: Task) => {
 	isEdit.value = true
 	uploadedFiles.value = task.inputFiles ? JSON.parse(JSON.stringify(task.inputFiles)) : []
 
-	// 获取 ID 和 名称 (兼容不同命名风格)
 	const tplId = (task as any).templateId || (task as any).template_id
 	const tplName = (task as any).templateName || (task as any).template_name
 
-	// 如果有模板ID，手动加一个标签
 	if (tplId) {
-		// 如果后端传了名字，就用名字；没传就显示编号
 		const displayName = tplName ? `[模板] ${tplName}` : `[模板] 编号:${tplId}`
-
 		if (!uploadedFiles.value.some(f => f.id === `tpl_${tplId}`)) {
 			uploadedFiles.value.push({
 				id: `tpl_${tplId}`,
@@ -346,7 +324,6 @@ const openEditModal = (task: Task) => {
 	if (uploadRef.value) uploadRef.value.clear()
 	showModal.value = true
 }
-// ==========================================================
 
 const handleUploadFinish = ({ file, event }: any) => {
 	const xhr = event?.target as XMLHttpRequest
@@ -369,13 +346,12 @@ const handleUploadFinish = ({ file, event }: any) => {
 				}
 				ms.success('文件上传成功')
 			} else { ms.error('文件上传失败') }
-		} catch (e) { /* 本地模式 */ }
+		} catch (e) { }
 	}
 	return file
 }
 
 const handleBeforeUpload = () => true
-const handleFileListChange = () => {}
 const handleFolderUpload = () => folderUploadInputRef.value?.click()
 const handleFolderChange = async (event: Event) => {
 	const input = event.target as HTMLInputElement
@@ -413,13 +389,9 @@ const saveTask = async () => {
 	if (!currentTask.value.taskType) return ms.warning('请选择类型')
 
 	const realFiles: TaskFile[] = []
-
-	// 🔥【关键修改】默认值改为 null。
-	// 这样如果下方循环没找到模板，selectedTemplateId 就是 null，传给后端就能把数据库里的 ID 清空。
 	let selectedTemplateId: string | number | null = null
 
 	uploadedFiles.value.forEach((f) => {
-		// 检查是否是模板文件（以 tpl_ 开头）
 		if (f.id && f.id.toString().startsWith('tpl_')) {
 			selectedTemplateId = f.id.toString().replace('tpl_', '')
 		} else {
@@ -427,11 +399,10 @@ const saveTask = async () => {
 		}
 	})
 
-	// 构造请求数据
 	const taskData: any = {
 		...currentTask.value,
 		inputFiles: realFiles,
-		templateId: selectedTemplateId // 这里如果是 null，后端就会把字段置空
+		templateId: selectedTemplateId
 	}
 
 	try {
@@ -446,10 +417,7 @@ const saveTask = async () => {
 	} catch (e: any) { ms.error('操作失败') }
 }
 
-const createTaskLocal = (task: any) => { /* 略 */ }
-const updateTaskLocal = (task: any) => { /* 略 */ }
 const handleDelete = async (task: Task) => { if(task.id && await deleteTask(task.id)) { ms.success('删除成功'); loadTasks() } }
-const deleteTaskLocal = (id: any) => { /* 略 */ }
 const handleDownloadFile = async (file: TaskFile) => {
 	if(file.id) await downloadTaskFile(file.id, file.name); else if(file.url) window.open(file.url, '_blank')
 }
@@ -493,6 +461,7 @@ const getSeverityTagType = (s: string) => ({ 严重: 'error', 高: 'warning', �
 const openVulnerabilityModal = async (task: Task) => {
 	if (!task.id) return
 	currentTaskId.value = task.id
+	isFullscreen.value = false // 每次打开弹窗重置为常规大小
 	showVulnerabilityModal.value = true
 	vulnerabilityLoading.value = true
 	try {
@@ -500,6 +469,40 @@ const openVulnerabilityModal = async (task: Task) => {
 		vulnerabilityDetail.value = res?.data || { taskTitle: task.title, totalCount: 0, vulnerabilities: [] }
 	} catch (e) { } finally { vulnerabilityLoading.value = false }
 }
+
+const fileMetricsColumns = [
+	{
+		title: '文件名称',
+		key: 'fileName',
+		ellipsis: { tooltip: true }
+	},
+	{
+		title: '质量评分',
+		key: 'score',
+		width: 100,
+		align: 'right' as const,
+		render: (row: any) => {
+			const score = Number(row.score);
+			let color = '#d03050';
+			if (score >= 90) color = '#18a058';
+			else if (score >= 60) color = '#f0a020';
+			return h('span', { style: { color, fontWeight: 'bold' } }, score.toFixed(2));
+		}
+	},
+	{
+		title: '规范检查',
+		key: 'isPassed',
+		width: 100,
+		align: 'center' as const,
+		render: (row: any) => {
+			return h(
+				NTag,
+				{ type: row.isPassed ? 'success' : 'error', size: 'small', round: true },
+				{ default: () => row.isPassed ? '通过' : '未通过' }
+			);
+		}
+	}
+];
 
 const columns = [
 	{ title: '任务标题', key: 'title', width: 150, ellipsis: { tooltip: true }, render: (row: Task) => h('span', { style: { cursor: 'pointer', color: '#18a058', textDecoration: 'underline' }, onClick: () => openVulnerabilityModal(row) }, row.title) },
@@ -524,15 +527,10 @@ const columns = [
 		width: 150,
 		render: (row: Task) => {
 			const files = row.inputFiles || []
-			// 1. 截取前 5 个文件
 			const displayFiles = files.slice(0, 5)
-
-			// 2. 渲染前 5 个文件的标签
 			const tags = displayFiles.map(f =>
 				h(NTag, { size: 'small', type: 'info' }, { default: () => f.name })
 			)
-
-			// 3. 如果总数超过 5 个，追加提示标签
 			if (files.length > 5) {
 				tags.push(
 					h(NTag, { size: 'small', type: 'default', style: 'border-style: dashed; color: #666;' }, {
@@ -549,18 +547,13 @@ const columns = [
 		width: 150,
 		render: (row: Task) => {
 			const files = row.outputFiles || []
-			// 1. 截取前 5 个返回文件
 			const displayFiles = files.slice(0, 5)
-
-			// 2. 渲染前 5 个下载按钮
 			const btns = displayFiles.map(f =>
 				h(NButton, { size: 'small', type: 'primary', onClick: () => handleDownloadFile(f) }, {
 					icon: () => h(NIcon, null, { default: () => h(DownloadOutline) }),
 					default: () => '下载'
 				})
 			)
-
-			// 3. 如果总数超过 5 个，追加提示标签
 			if (files.length > 5) {
 				btns.push(
 					h(NTag, { size: 'small', type: 'default', style: 'border-style: dashed; color: #666;' }, {
@@ -586,28 +579,14 @@ const columns = [
 ]
 
 const goBackToProject = () => {
-	// 清空过滤条件，防止污染后续状态
 	filterProjectId.value = null
-
-	// 推荐直接返回上一页
 	router.back()
-
-	// 或者指定路由跳转（如果你的项目管理路由是 /project/index）
-	// router.push({ path: '/project/index' })
 }
 
 onMounted(async () => {
-	// 1. 从 URL 路由参数中获取 projectId
 	const queryProjectId = route.query.projectId
-	if (queryProjectId) {
-		// 赋值给过滤变量，这样 loadTasks 时就会自动带上这个参数
-		filterProjectId.value = String(queryProjectId)
-	}
-
-	// 2. 加载项目列表数据（用于下拉框等）
+	if (queryProjectId) filterProjectId.value = String(queryProjectId)
 	await loadProjects()
-
-	// 3. 加载任务列表数据
 	await loadTasks()
 })
 onUnmounted(() => stopPolling())
@@ -678,7 +657,6 @@ onUnmounted(() => stopPolling())
 									已选模板编号：{{ currentTemplateId }}
 								</NText>
 							</div>
-
 						</NSpace>
 					</NFormItem>
 				</NForm>
@@ -708,50 +686,94 @@ onUnmounted(() => stopPolling())
 				</div>
 			</NModal>
 
-			<NModal v-model:show="showVulnerabilityModal" title="任务漏洞详情" preset="card" style="width: 900px; max-height: 80vh" :mask-closable="false">
+			<NModal
+				v-model:show="showVulnerabilityModal"
+				title="任务漏洞详情"
+				preset="card"
+				:style="isFullscreen ? { width: '100vw', height: '100vh', margin: 0, borderRadius: 0 } : { width: '900px' }"
+				:mask-closable="false"
+				class="vulnerability-modal compact-modal"
+			>
+				<template #header-extra>
+					<NButton text style="font-size: 20px; margin-right: 8px" @click="isFullscreen = !isFullscreen" title="切换全屏">
+						<NIcon><component :is="isFullscreen ? ContractOutline : ExpandOutline" /></NIcon>
+					</NButton>
+				</template>
+
 				<NSpin :show="vulnerabilityLoading">
-					<div v-if="vulnerabilityDetail" class="vulnerability-detail">
-						<NCard size="small" class="mb-4">
-							<div class="flex items-center justify-between">
-								<div><NText strong style="font-size: 16px">{{ vulnerabilityDetail.taskTitle }}</NText></div>
-								<div class="text-center">
-									<NText depth="3" style="font-size: 12px">漏洞总数</NText>
-									<div class="text-2xl font-bold" :style="{ color: vulnerabilityDetail.totalCount > 0 ? '#d03050' : '#18a058' }">{{ vulnerabilityDetail.totalCount }}</div>
+					<div v-if="vulnerabilityDetail">
+
+						<div class="flex items-center justify-between mb-2 p-3 bg-gray-50 dark:bg-[#1f1f1f] border border-gray-200 dark:border-gray-700 rounded-md">
+							<div>
+								<NText strong style="font-size: 16px">{{ vulnerabilityDetail.taskTitle }}</NText>
+								<div class="mt-2" v-if="vulnerabilityDetail.severityCount">
+									<NSpace :size="8">
+										<NTag v-if="vulnerabilityDetail.severityCount?.['严重']" type="error" size="small">严重: {{ vulnerabilityDetail.severityCount['严重'] }}</NTag>
+										<NTag v-if="vulnerabilityDetail.severityCount?.['高']" type="warning" size="small">高: {{ vulnerabilityDetail.severityCount['高'] }}</NTag>
+										<NTag v-if="vulnerabilityDetail.severityCount?.['中']" type="info" size="small">中: {{ vulnerabilityDetail.severityCount['中'] }}</NTag>
+										<NTag v-if="vulnerabilityDetail.severityCount?.['低']" type="default" size="small">低: {{ vulnerabilityDetail.severityCount['低'] }}</NTag>
+									</NSpace>
 								</div>
 							</div>
+							<div class="text-center">
+								<NText depth="3" style="font-size: 12px">漏洞总数</NText>
+								<div class="text-xl font-bold" :style="{ color: vulnerabilityDetail.totalCount > 0 ? '#d03050' : '#18a058', lineHeight: 1 }">{{ vulnerabilityDetail.totalCount }}</div>
+							</div>
+						</div>
+
+						<NCard size="small" class="mb-2">
+							<template #header>代码质量与规范分析</template>
+							<NGrid :cols="2" :x-gap="16" class="mb-2">
+								<NGridItem>
+									<NStatistic label="总体代码质量评分 (加权)">
+										<template #prefix><NIcon><SvgIcon icon="mdi:star-outline" color="#2080f0"/></NIcon></template>
+										<NNumberAnimation :from="0" :to="vulnerabilityDetail.overallScore || 0" :precision="2" />
+										<template #suffix><NText depth="3" style="font-size: 13px;">/ 100</NText></template>
+									</NStatistic>
+								</NGridItem>
+								<NGridItem>
+									<NStatistic label="代码规范遵循通过率">
+										<template #prefix><NIcon><SvgIcon icon="mdi:checkbox-marked-circle-outline" color="#18a058"/></NIcon></template>
+										<NNumberAnimation :from="0" :to="(vulnerabilityDetail.complianceRate || 0) * 100" :precision="1" />
+										<template #suffix><NText depth="3" style="font-size: 13px;">%</NText></template>
+										<template #suffix-extra>
+											<NText depth="3" style="font-size: 12px; margin-left: 8px;">(通过: {{ vulnerabilityDetail.passedFileCount || 0 }} / 总: {{ vulnerabilityDetail.totalFileCount || 0 }})</NText>
+										</template>
+									</NStatistic>
+								</NGridItem>
+							</NGrid>
+							<NDivider style="margin: 8px 0; font-size: 12px;" dashed title-placement="left">各文件详情</NDivider>
+							<NDataTable size="small" :columns="fileMetricsColumns" :data="vulnerabilityDetail.fileMetrics || []" :max-height="120" striped virtual-scroll />
 						</NCard>
-						<NCard v-if="vulnerabilityDetail.severityCount" size="small" class="mb-4">
-							<template #header>漏洞统计</template>
-							<NSpace>
-								<NTag v-if="vulnerabilityDetail.severityCount?.['严重']" type="error" size="large">严重: {{ vulnerabilityDetail.severityCount['严重'] }}</NTag>
-								<NTag v-if="vulnerabilityDetail.severityCount?.['高']" type="warning" size="large">高: {{ vulnerabilityDetail.severityCount['高'] }}</NTag>
-								<NTag v-if="vulnerabilityDetail.severityCount?.['中']" type="info" size="large">中: {{ vulnerabilityDetail.severityCount['中'] }}</NTag>
-								<NTag v-if="vulnerabilityDetail.severityCount?.['低']" type="default" size="large">低: {{ vulnerabilityDetail.severityCount['低'] }}</NTag>
-							</NSpace>
-						</NCard>
+
 						<div v-if="vulnerabilityDetail.vulnerabilities?.length > 0">
-							<NDivider style="margin: 16px 0">漏洞列表</NDivider>
-							<NScrollbar style="max-height: 500px">
-								<div class="vulnerability-list">
-									<div v-for="(vuln, index) in vulnerabilityDetail.vulnerabilities" :key="vuln.id || index" :class="`vulnerability-item severity-${getSeverityClass(vuln.severity)}`">
-										<div class="vulnerability-header">
-											<div class="flex items-center gap-2">
-												<NTag :type="getSeverityTagType(vuln.severity)" size="small">{{ vuln.severity }}</NTag>
-												<NText strong style="font-size: 15px">{{ vuln.title }}</NText>
+							<NDivider style="margin: 12px 0 8px 0; font-size: 13px;">漏洞列表</NDivider>
+
+							<div class="border border-gray-200 dark:border-gray-700 rounded-md bg-[#fafafa] dark:bg-[#141414]">
+								<NScrollbar :style="{ maxHeight: isFullscreen ? 'calc(100vh - 380px)' : '250px' }" class="p-2">
+									<div class="vulnerability-list">
+										<div v-for="(vuln, index) in vulnerabilityDetail.vulnerabilities" :key="vuln.id || index" :class="`vulnerability-item severity-${getSeverityClass(vuln.severity)}`">
+											<div class="vulnerability-header">
+												<div class="flex items-center gap-2">
+													<NTag :type="getSeverityTagType(vuln.severity)" size="small">{{ vuln.severity }}</NTag>
+													<NText strong style="font-size: 14px">{{ vuln.title }}</NText>
+												</div>
+												<NText v-if="vuln.category" depth="3" style="font-size: 12px">{{ vuln.category }}</NText>
 											</div>
-											<NText v-if="vuln.category" depth="3" style="font-size: 12px">{{ vuln.category }}</NText>
-										</div>
-										<div class="vulnerability-content">
-											<div class="vulnerability-section"><NText strong style="font-size: 14px; color: #666">漏洞描述：</NText><div class="vulnerability-text"><NText>{{ vuln.description }}</NText></div></div>
-											<div v-if="vuln.filePath" class="vulnerability-section"><NText strong style="font-size: 14px; color: #666">文件位置：</NText><div class="vulnerability-text"><NText code>{{ vuln.filePath }}{{ vuln.lineNumber ? `:${vuln.lineNumber}` : '' }}</NText></div></div>
-											<div v-if="vuln.codeSnippet" class="vulnerability-section"><NText strong style="font-size: 14px; color: #666">相关代码：</NText><div class="vulnerability-text"><pre class="code-snippet"><code>{{ vuln.codeSnippet }}</code></pre></div></div>
-											<div class="vulnerability-section fix-suggestion"><NText strong style="font-size: 14px; color: #18a058">修复建议：</NText><div class="vulnerability-text"><NText>{{ vuln.fixSuggestion }}</NText></div></div>
+											<div class="vulnerability-content">
+												<div class="vulnerability-section"><NText strong style="font-size: 13px; color: #666">漏洞描述：</NText><div class="vulnerability-text"><NText style="font-size: 13px">{{ vuln.description }}</NText></div></div>
+												<div v-if="vuln.filePath" class="vulnerability-section"><NText strong style="font-size: 13px; color: #666">文件位置：</NText><div class="vulnerability-text"><NText code style="font-size: 12px">{{ vuln.filePath }}{{ vuln.lineNumber ? `:${vuln.lineNumber}` : '' }}</NText></div></div>
+												<div v-if="vuln.codeSnippet" class="vulnerability-section"><NText strong style="font-size: 13px; color: #666">相关代码：</NText><div class="vulnerability-text"><pre class="code-snippet"><code>{{ vuln.codeSnippet }}</code></pre></div></div>
+												<div class="vulnerability-section fix-suggestion"><NText strong style="font-size: 13px; color: #18a058">修复建议：</NText><div class="vulnerability-text"><NText style="font-size: 13px">{{ vuln.fixSuggestion }}</NText></div></div>
+											</div>
 										</div>
 									</div>
-								</div>
-							</NScrollbar>
+								</NScrollbar>
+							</div>
+
 						</div>
-						<NEmpty v-else description="该任务暂未发现漏洞" />
+						<NEmpty v-else description="该任务暂未发现漏洞" class="py-4" />
+
 					</div>
 				</NSpin>
 			</NModal>
@@ -761,27 +783,38 @@ onUnmounted(() => stopPolling())
 
 <style scoped>
 :deep(.n-data-table) { height: 100%; }
-.vulnerability-detail { padding: 0; }
-.vulnerability-list { display: flex; flex-direction: column; gap: 0; }
-.vulnerability-item { padding: 16px; border-left: 3px solid #e5e7eb; background-color: #fafafa; transition: all 0.2s; border-bottom: 1px solid #e5e7eb; }
-.vulnerability-item:last-child { border-bottom: none; }
-.vulnerability-item.severity-critical { border-left-color: #d03050; background-color: #fff1f0; }
-.vulnerability-item.severity-high { border-left-color: #f0a020; background-color: #fffbe6; }
-.vulnerability-item.severity-medium { border-left-color: #2080f0; background-color: #e6f7ff; }
-.vulnerability-item.severity-low { border-left-color: #909399; background-color: #f5f5f5; }
-.dark .vulnerability-item { background-color: #1a1a1a; border-left-color: #404040; border-bottom-color: #404040; }
-.dark .vulnerability-item.severity-critical { background-color: #2a1a1a; border-left-color: #d03050; }
-.dark .vulnerability-item.severity-high { background-color: #2a241a; border-left-color: #f0a020; }
-.dark .vulnerability-item.severity-medium { background-color: #1a1f2a; border-left-color: #2080f0; }
-.dark .vulnerability-item.severity-low { background-color: #1f1f1f; border-left-color: #606060; }
-.vulnerability-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; padding-bottom: 8px; border-bottom: 1px solid rgba(0, 0, 0, 0.06); }
+
+/* --- 压缩间距 --- */
+.compact-modal :deep(.n-card > .n-card-header) { padding-bottom: 4px; padding-top: 10px; font-size: 15px; }
+.compact-modal :deep(.n-card > .n-card__content) { padding-top: 4px; padding-bottom: 10px; }
+
+/* 漏洞列表紧凑化 */
+.vulnerability-list { display: flex; flex-direction: column; gap: 6px; }
+.vulnerability-item { padding: 12px; border-left: 3px solid #e5e7eb; background-color: #ffffff; border-radius: 4px; box-shadow: 0 1px 2px rgba(0,0,0,0.05); }
+
+.vulnerability-item.severity-critical { border-left-color: #d03050; }
+.vulnerability-item.severity-high { border-left-color: #f0a020; }
+.vulnerability-item.severity-medium { border-left-color: #2080f0; }
+.vulnerability-item.severity-low { border-left-color: #909399; }
+
+.dark .vulnerability-item { background-color: #1a1a1a; border-left-color: #404040; }
+.dark .vulnerability-item.severity-critical { border-left-color: #d03050; }
+.dark .vulnerability-item.severity-high { border-left-color: #f0a020; }
+.dark .vulnerability-item.severity-medium { border-left-color: #2080f0; }
+.dark .vulnerability-item.severity-low { border-left-color: #606060; }
+
+.vulnerability-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; padding-bottom: 6px; border-bottom: 1px dashed rgba(0, 0, 0, 0.08); }
 .dark .vulnerability-header { border-bottom-color: rgba(255, 255, 255, 0.1); }
 .vulnerability-content { padding: 0; }
-.vulnerability-section { margin-bottom: 12px; }
+.vulnerability-section { margin-bottom: 8px; }
 .vulnerability-section:last-child { margin-bottom: 0; }
-.vulnerability-text { margin-top: 6px; line-height: 1.6; }
-.code-snippet { background-color: #f5f5f5; padding: 12px; border-radius: 4px; overflow-x: auto; font-family: 'Courier New', monospace; font-size: 12px; line-height: 1.5; margin: 6px 0 0 0; }
+.vulnerability-text { margin-top: 4px; line-height: 1.5; }
+.code-snippet { background-color: #f5f5f5; padding: 8px 12px; border-radius: 4px; overflow-x: auto; font-family: 'Courier New', monospace; font-size: 12px; line-height: 1.4; margin: 4px 0 0 0; }
 .dark .code-snippet { background-color: #2d2d2d; color: #f8f8f2; }
-.fix-suggestion { padding: 12px; background-color: #f6ffed; border-left: 3px solid #52c41a; border-radius: 4px; margin-top: 8px; }
+.fix-suggestion { padding: 8px 12px; background-color: #f6ffed; border-left: 3px solid #52c41a; border-radius: 4px; margin-top: 6px; }
 .dark .fix-suggestion { background-color: #162312; border-left-color: #73d13d; }
+
+/* 缩小 NStatistic 字体 */
+:deep(.n-statistic .n-statistic-value .n-statistic-value__prefix .n-icon) { font-size: 18px; margin-right: 6px; }
+:deep(.n-statistic .n-statistic-value .n-statistic-value__content) { font-weight: 700; font-size: 20px; }
 </style>

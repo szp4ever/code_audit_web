@@ -4,7 +4,7 @@ import { PromptStore, SvgIcon } from '@/components/common'
 import { useBasicLayout } from '@/hooks/useBasicLayout'
 const { isMobile } = useBasicLayout()
 import { removeToken } from '@/store/modules/auth/helper'
-import { NTooltip, NAvatar, NPopover, NMenu, NIcon } from 'naive-ui'
+import { NTooltip, NAvatar, NPopover, NMenu, NIcon, NButton } from 'naive-ui'
 
 import { loginOut, getUserInfo } from '@/api/user'
 
@@ -62,7 +62,6 @@ async function getLoginUserInfo() {
     userInfo.value.name = newUserInfo.data.user.nickName;
     userInfo.value.userBalance = newUserInfo.data.user.userBalance;
     userInfo.value.userName = newUserInfo.data.user.userName;
-    isLogin.value = true
   }
 }
 
@@ -208,6 +207,19 @@ const handleSelect = (key: string) => {
           </n-tooltip>
         </a>
 
+				<a @click="urouter.push(`/report`)"
+					 class=" router-link-exact-active h-10 w-10 cursor-pointer rounded-xl bg-white duration-300 dark:bg-[#34373c] hover:bg-[#bbb] dark:hover:bg-[#555]">
+					<n-tooltip placement="right" trigger="hover">
+						<template #trigger>
+							<div class="flex h-full justify-center items-center py-1 flex-col"
+									 :class="[goHome == 'Report' ? 'active' : '']">
+								<SvgIcon icon="ri:file-text-line" class="text-2xl flex-1"></SvgIcon>
+							</div>
+						</template>
+						报告管理
+					</n-tooltip>
+				</a>
+
         <!-- PPT菜单项已隐藏 -->
         <!-- <a @click="urouter.push(`/ppt`)"
           class=" router-link-exact-active h-10 w-10 cursor-pointer rounded-xl bg-white duration-300 dark:bg-[#34373c] hover:bg-[#bbb] dark:hover:bg-[#555]">
@@ -223,7 +235,7 @@ const handleSelect = (key: string) => {
       </div>
 
       <div class="flex flex-col  space-y-2 ">
- 
+
 
         <n-popover trigger="click" :show-arrow="false">
           <template #trigger>
@@ -240,11 +252,11 @@ const handleSelect = (key: string) => {
 
       </div>
 
-      
+
     </div>
-    
+
   </div>
   <Setting v-if="st.show" v-model:visible="st.show" />
   <PromptStore v-model:visible="show"></PromptStore>
-  
+
 </template>

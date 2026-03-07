@@ -10,6 +10,7 @@ import musiclayout from '@/views/suno/layout.vue'
 import knowledgelayout from '@/views/knowledge/layout.vue'
 import tasklayout from '@/views/task/layout.vue'
 import projectlayout from '@/views/project/layout.vue'
+import reportlayout from '@/views/report/layout.vue'
 
 const routes: RouteRecordRaw[] = [
   {
@@ -26,7 +27,7 @@ const routes: RouteRecordRaw[] = [
     ],
   },
 
-   {
+  {
     path: '/m',
     name: 'm',
     component: ChatLayout,
@@ -41,7 +42,7 @@ const routes: RouteRecordRaw[] = [
   },
 
   {
-    
+
     path: '/draw',
     name: 'Rootdraw',
     component: mjlayout,
@@ -56,18 +57,18 @@ const routes: RouteRecordRaw[] = [
   },
 
   {
-		path: "/ppt",
-		name: "Ppt",
-		component: pptlayout,
-		redirect: "/ppt/index",
-		children: [
-			{
-				path: "index",
-				name: "ppt",
-				component: () => import('@/views/ppt/ppt.vue'),
-			},
-		],
-	},
+    path: '/ppt',
+    name: 'Ppt',
+    component: pptlayout,
+    redirect: '/ppt/index',
+    children: [
+      {
+        path: 'index',
+        name: 'ppt',
+        component: () => import('@/views/ppt/ppt.vue'),
+      },
+    ],
+  },
 
   {
     path: '/video',
@@ -83,19 +84,19 @@ const routes: RouteRecordRaw[] = [
     ],
   },
 
-	{
-		path: "/music",
-		name: "Music",
-		component: musiclayout,
-		redirect: "/music/index",
-		children: [
-			{
-				path: "/music/:uuid?",
-				name: "music",
-				component: () => import('@/views/suno/music.vue'),
-			},
-		],
-	},
+  {
+    path: '/music',
+    name: 'Music',
+    component: musiclayout,
+    redirect: '/music/index',
+    children: [
+      {
+        path: '/music/:uuid?',
+        name: 'music',
+        component: () => import('@/views/suno/music.vue'),
+      },
+    ],
+  },
 
   {
     path: '/knowledge',
@@ -169,6 +170,20 @@ const routes: RouteRecordRaw[] = [
   },
 
   {
+    path: '/report',
+    name: 'ReportRoot',
+    component: reportlayout,
+    redirect: '/report/index',
+    children: [
+      {
+        path: 'index',
+        name: 'Report',
+        component: () => import('@/views/report/index.vue'),
+      },
+    ],
+  },
+
+  {
     path: '/annex',
     name: 'Annex',
     component: knowledgelayout,
@@ -223,7 +238,7 @@ const routes: RouteRecordRaw[] = [
     name: 'resetpassword',
     component: () => import('@/views/login/reset.vue'),
   },
-  
+
   {
     path: '/500',
     name: '500',
@@ -241,13 +256,12 @@ export const router = createRouter({
   history: createWebHashHistory(),
   routes,
   scrollBehavior(to, from, savedPosition) {
-    if (savedPosition) {
+    if (savedPosition)
       return savedPosition
-    } else if (to.hash) {
+    else if (to.hash)
       return { el: to.hash, behavior: 'smooth' }
-    } else {
+    else
       return { left: 0, top: 0, behavior: 'smooth' }
-    }
   },
 })
 
