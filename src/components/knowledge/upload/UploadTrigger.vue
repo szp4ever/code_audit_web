@@ -14,6 +14,8 @@ const store = useUploadStore()
 const props = defineProps<{
   showLabel?: boolean
   type?: 'default' | 'fab'
+  /** FAB 是否在没有任务时也常驻显示 */
+  showAlways?: boolean
 }>()
 
 const hasActiveTasks = computed(() => store.hasActiveTasks)
@@ -81,7 +83,7 @@ function openDrawer() {
   <template v-else>
     <Transition name="fab">
       <div
-        v-if="hasActiveTasks"
+        v-if="props.showAlways || hasActiveTasks"
         class="upload-fab"
         @click="openDrawer"
       >
