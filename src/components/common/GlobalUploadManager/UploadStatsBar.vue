@@ -10,10 +10,6 @@
 				<span class="stat-value" :style="{ color: '#808080' }">{{ waitingCount }}</span>
 			</div>
 			<div class="stat-item">
-				<span class="stat-label">待审阅</span>
-				<span class="stat-value" :style="{ color: '#FA8C16' }">{{ pendingReviewCount }}</span>
-			</div>
-			<div class="stat-item">
 				<span class="stat-label">成功</span>
 				<span class="stat-value" :style="{ color: '#52C41A' }">{{ successCount }}</span>
 			</div>
@@ -32,11 +28,10 @@ import { useUploadStore } from '@/store/modules/upload'
 
 const store = useUploadStore()
 
-const activeCount = computed(() => store.activeTaskCount)
-const waitingCount = computed(() => store.waitingTasks.length)
-const pendingReviewCount = computed(() => store.pendingReviewTasks.length)
-const successCount = computed(() => store.successTasks.length)
-const errorCount = computed(() => store.errorTasks.length)
+const activeCount = computed(() => store.activeTaskCount ?? 0)
+const waitingCount = computed(() => (store.waitingTasks ?? []).length)
+const successCount = computed(() => (store.successTasks ?? []).length)
+const errorCount = computed(() => (store.errorTasks ?? []).length)
 </script>
 
 <style scoped>

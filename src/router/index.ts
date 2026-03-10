@@ -10,6 +10,7 @@ import musiclayout from '@/views/suno/layout.vue'
 import knowledgelayout from '@/views/knowledge/layout.vue'
 import tasklayout from '@/views/task/layout.vue'
 import projectlayout from '@/views/project/layout.vue'
+import knowledgeV2Routes from './modules/knowledge'
 
 const routes: RouteRecordRaw[] = [
   {
@@ -41,7 +42,6 @@ const routes: RouteRecordRaw[] = [
   },
 
   {
-    
     path: '/draw',
     name: 'Rootdraw',
     component: mjlayout,
@@ -97,34 +97,35 @@ const routes: RouteRecordRaw[] = [
 		],
 	},
 
-  {
-    path: '/knowledge',
-    name: 'Knowledge',
-    component: knowledgelayout,
-    redirect: '/knowledge/t',
-    children: [
-      {
-        path: 't',
-        name: 'knowledge1',
-        component: () => import('@/views/knowledge/index.vue'),
-      },
-      {
-        path: 'item/list',
-        name: 'knowledgeItemList',
-        component: () => import('@/views/knowledge/item/list.vue'),
-      },
-      {
-        path: 'item/detail/:itemUuid',
-        name: 'knowledgeItemDetail',
-        component: () => import('@/views/knowledge/item/detail.vue'),
-      },
-      {
-        path: 'item/:itemUuid/fragments',
-        name: 'knowledgeItemFragments',
-        component: () => import('@/views/knowledge/item/fragments.vue'),
-      },
-    ],
-  },
+  // [DEPRECATED] Old knowledge routes — replaced by v2 knowledgeV2Routes
+  // {
+  //   path: '/knowledge',
+  //   name: 'Knowledge',
+  //   component: knowledgelayout,
+  //   redirect: '/knowledge/t',
+  //   children: [
+  //     {
+  //       path: 't',
+  //       name: 'knowledge1',
+  //       component: () => import('@/views/knowledge/index.vue'),
+  //     },
+  //     {
+  //       path: 'item/list',
+  //       name: 'knowledgeItemList',
+  //       component: () => import('@/views/knowledge/item/list.vue'),
+  //     },
+  //     {
+  //       path: 'item/detail/:itemUuid',
+  //       name: 'knowledgeItemDetail',
+  //       component: () => import('@/views/knowledge/item/detail.vue'),
+  //     },
+  //     {
+  //       path: 'item/:itemUuid/fragments',
+  //       name: 'knowledgeItemFragments',
+  //       component: () => import('@/views/knowledge/item/fragments.vue'),
+  //     },
+  //   ],
+  // },
 
   {
     path: '/workflow',
@@ -168,38 +169,40 @@ const routes: RouteRecordRaw[] = [
     ],
   },
 
-  {
-    path: '/annex',
-    name: 'Annex',
-    component: knowledgelayout,
-    redirect: '/annex/t',
-    children: [
-      {
-        path: 't',
-        name: 'annex1',
-        component: () => import('@/views/knowledge/annex.vue'),
-      },
-      {
-        path: 'llm-test',
-        name: 'annexLlmTest',
-        component: () => import('@/views/knowledge/LlmTest.vue'),
-      },
-    ],
-  },
+  // [DEPRECATED] Old annex routes — replaced by v2 knowledgeV2Routes
+  // {
+  //   path: '/annex',
+  //   name: 'Annex',
+  //   component: knowledgelayout,
+  //   redirect: '/annex/t',
+  //   children: [
+  //     {
+  //       path: 't',
+  //       name: 'annex1',
+  //       component: () => import('@/views/knowledge/annex.vue'),
+  //     },
+  //     {
+  //       path: 'llm-test',
+  //       name: 'annexLlmTest',
+  //       component: () => import('@/views/knowledge/LlmTest.vue'),
+  //     },
+  //   ],
+  // },
 
-  {
-    path: '/fragment',
-    name: 'Fragment',
-    component: knowledgelayout,
-    redirect: '/fragment/t',
-    children: [
-      {
-        path: 't',
-        name: 'fragment1',
-        component: () => import('@/views/knowledge/fragment.vue'),
-      },
-    ],
-  },
+  // [DEPRECATED] Old fragment routes — replaced by v2 knowledgeV2Routes
+  // {
+  //   path: '/fragment',
+  //   name: 'Fragment',
+  //   component: knowledgelayout,
+  //   redirect: '/fragment/t',
+  //   children: [
+  //     {
+  //       path: 't',
+  //       name: 'fragment1',
+  //       component: () => import('@/views/knowledge/fragment.vue'),
+  //     },
+  //   ],
+  // },
 
   {
     path: '/404',
@@ -230,6 +233,9 @@ const routes: RouteRecordRaw[] = [
     component: () => import('@/views/exception/500/index.vue'),
   },
 
+  // v2 知识库模块路由
+  ...knowledgeV2Routes,
+
   {
     path: '/:pathMatch(.*)*',
     name: 'notFound',
@@ -251,9 +257,62 @@ export const router = createRouter({
   },
 })
 
+// ═══════════════════════════════════════════════════════
+// 全局路由进度条与微交互
+// ═══════════════════════════════════════════════════════
+let progressTimer: ReturnType<typeof setTimeout> | null = null
+const progressBar = document.createElement('div')
+progressBar.id = 'router-progress'
+progressBar.style.cssText = `
+  position: fixed;
+  top: 0;
+  left: 0;
+  height: 2px;
+  background: linear-gradient(90deg, #0078d4, #005a9e);
+  z-index: 9999;
+  transition: width 0.2s ease, opacity 0.3s ease;
+  width: 0%;
+  opacity: 0;
+`
+document.body.appendChild(progressBar)
+
+router.beforeEach((to, from, next) => {
+  progressBar.style.width = '30%'
+  progressBar.style.opacity = '1'
+  if (progressTimer) clearTimeout(progressTimer)
+  progressTimer = setTimeout(() => {
+    progressBar.style.width = '70%'
+  }, 200)
+  next()
+})
+
+router.afterEach(() => {
+  if (progressTimer) clearTimeout(progressTimer)
+  progressBar.style.width = '100%'
+  setTimeout(() => {
+    progressBar.style.opacity = '0'
+    setTimeout(() => {
+      progressBar.style.width = '0%'
+    }, 300)
+  }, 200)
+})
+
+router.onError(() => {
+  progressBar.style.background = '#d13438'
+  progressBar.style.width = '100%'
+  setTimeout(() => {
+    progressBar.style.opacity = '0'
+    setTimeout(() => {
+      progressBar.style.width = '0%'
+      progressBar.style.background = 'linear-gradient(90deg, #0078d4, #005a9e)'
+    }, 300)
+  }, 300)
+})
+
 setupPageGuard(router)
 
 export async function setupRouter(app: App) {
   app.use(router)
   await router.isReady()
 }
+

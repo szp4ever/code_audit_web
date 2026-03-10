@@ -23,6 +23,7 @@ import {
 } from '@vicons/ionicons5'
 import { getToken } from '@/store/modules/auth/helper'
 import { useRoute, useRouter } from 'vue-router'
+import { extractKeywords, highlightTextForRender } from '@/utils/searchHighlight'
 
 const route = useRoute()
 const router = useRouter()
@@ -502,7 +503,11 @@ const openVulnerabilityModal = async (task: Task) => {
 }
 
 const columns = [
-	{ title: '任务标题', key: 'title', width: 150, ellipsis: { tooltip: true }, render: (row: Task) => h('span', { style: { cursor: 'pointer', color: '#18a058', textDecoration: 'underline' }, onClick: () => openVulnerabilityModal(row) }, row.title) },
+	{ title: '任务标题', key: 'title', width: 150, ellipsis: { tooltip: true }, render: (row: Task) => {
+	const keywords = extractKeywords(searchKeyword.value)
+	const content = keywords.length ? highlightTextForRender(row.title || '', keywords, h) : [row.title || '']
+	return h('span', { style: { cursor: 'pointer', color: '#18a058', textDecoration: 'underline' }, onClick: () => openVulnerabilityModal(row) }, content)
+} },
 	{ title: '任务要求', key: 'description', width: 100, ellipsis: { tooltip: true }, render: (row: Task) => row.description || '-' },
 	{ title: '任务类型', key: 'taskType', width: 150, render: (row: Task) => h(NTag, { type: taskTypeTagType(row.taskType) as any, size: 'small' }, { default: () => taskTypeLabel(row.taskType) }) },
 	{ title: '优先级', key: 'priority', width: 100, render: (row: Task) => h(NTag, { type: priorityTagType(row.priority) as any, size: 'small' }, { default: () => priorityLabel(row.priority) }) },

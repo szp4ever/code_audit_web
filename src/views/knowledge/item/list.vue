@@ -1117,6 +1117,16 @@
 		if (scoreValue >= 0.1) return 'low';
 		return 'none';
 	}
+	// 获取 RiskScoreCard 所需 props（支持确切分数和区间）
+	function getRiskScoreCardProps(item: any): { score?: number; scoreRange?: { min: number; max: number }; riskLevel?: { label: string; color: string } } {
+		const r = calculateCvssScoreFromItem(item);
+		if (!r) return {};
+		const severity = getItemSeverityForDisplay(item);
+		const riskLevel = severity ? { label: getDictLabel(severityOptions.value, severity), color: getDictColor(severityOptions.value, severity, '#808080') } : undefined;
+		if (r.exact != null) return { score: r.exact, riskLevel };
+		if (r.min != null && r.max != null) return { scoreRange: { min: r.min, max: r.max }, riskLevel };
+		return {};
+	}
 	//获取CVSS组件显示名称
 	function getCvssComponentLabel(key: string, value: string): string {
 		const labels: Record<string, Record<string, string>> = {
@@ -5520,7 +5530,9 @@
 										
 										<!-- 风险评分区域（可视化） -->
 										<div v-if="detailItem.cvssScore !== undefined || detailItem.cvssVector" class="detail-risk-section">
-											<RiskScoreCard :score="detailItem.cvssScore" />
+											<RiskScoreCard
+												v-bind="getRiskScoreCardProps(detailItem)"
+											/>
 											<div v-if="detailItem.cvssVector && parseCvssVector(detailItem.cvssVector)" class="cvss-vector-details">
 												<h3 class="cvss-details-title">CVSS 指标详情</h3>
 												<div class="cvss-details-grid">
@@ -5878,12 +5890,11 @@
 								<!-- 风险评分区域 -->
 								<div v-if="detailItem.cvssScore !== undefined || detailItem.cvssVector" class="detail-risk-section">
 									<h2 class="detail-section-title">风险评分</h2>
-									<div class="risk-score-display">
-										<div v-if="getItemCvssScoreDisplay(detailItem)" class="risk-score-value">
-											<span class="score-number">{{ getItemCvssScoreDisplay(detailItem) }}</span>
-											<span class="score-label">/ 10.0</span>
-										</div>
-										<div v-if="detailItem.cvssVector" class="risk-components">
+									<RiskScoreCard
+										v-bind="getRiskScoreCardProps(detailItem)"
+										style="margin-bottom: 16px;"
+									/>
+									<div v-if="detailItem.cvssVector" class="risk-components">
 											<template v-if="parseCvssVector(detailItem.cvssVector)">
 												<div class="risk-component-grid">
 													<div v-if="parseCvssVector(detailItem.cvssVector)?.av" class="risk-component-item">
@@ -5916,7 +5927,6 @@
 													</div>
 												</div>
 											</template>
-										</div>
 									</div>
 								</div>
 								
@@ -6057,7 +6067,7 @@
 										</n-radio-group>
 										<div v-if="selectedItems.size === 0" style="display: flex; align-items: center; font-size: 12px; color: #999; margin-top: 4px; padding-left: 24px;">
 											<SvgIcon icon="ri:information-line" style="font-size: 14px; margin-right: 4px;" />
-											<span>勾选左侧复选框可批量导出指定条目</span>
+											<span>勾选条目列表左侧复选框可批量导出指定条目</span>
 										</div>
 									</n-space>
 								</n-form-item>

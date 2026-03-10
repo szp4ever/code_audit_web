@@ -30,6 +30,14 @@
 
 			<div class="panel-content">
 				<UploadStatsBar />
+				<div v-if="hasProcessingPdfTasks" class="pdf-mode-notice">
+					<n-alert type="info" :show-icon="true" size="small">
+						<template #icon>
+							<SvgIcon icon="mdi:information-outline" style="font-size: 14px;" />
+						</template>
+						<span>当前使用标准 PDF 解析模式。如需更好的复杂 PDF 解析效果，可配置 MinerU 增强模式。</span>
+					</n-alert>
+				</div>
 				<TaskFilterBar />
 
 				<div class="task-groups">
@@ -140,7 +148,7 @@
 
 <script setup lang="ts">
 import { ref, reactive, watch, onMounted, onUnmounted, computed } from 'vue'
-import { NDrawer, NButton, NSpace, NEmpty, NModal, NForm, NFormItem, NSwitch, NInputNumber } from 'naive-ui'
+import { NDrawer, NButton, NSpace, NEmpty, NModal, NForm, NFormItem, NSwitch, NInputNumber, NAlert } from 'naive-ui'
 import { SvgIcon } from '@/components/common'
 import { useUploadStore } from '@/store/modules/upload'
 import type { UploadTask } from '@/store/modules/upload/helper'
@@ -184,7 +192,7 @@ function getGroupTitle(kid: string, tasks: UploadTask[]): string {
 	if (stats.active > 0) parts.push(`${stats.active}进行中`)
 	if (stats.completed > 0) parts.push(`${stats.completed}已完成`)
 	if (stats.failed > 0) parts.push(`${stats.failed}失败`)
-	if (stats.pending > 0) parts.push(`${stats.pending}待审阅`)
+	if (stats.pending > 0) parts.push(`${stats.pending}等待`)
 	const statsText = parts.length > 0 ? ` [${parts.join(' ')}]` : ''
 	return `${kbName} (${stats.total})${statsText}`
 }
@@ -226,6 +234,20 @@ function expandActiveGroups() {
 
 const hasCompletedTasks = computed(() => store.successTasks.length > 0)
 const hasErrorTasks = computed(() => store.errorTasks.length > 0)
+
+/**
+ * 检查是否有正在处理的 PDF 任务（用于显示 MinerU 提示）
+ */
+const hasProcessingPdfTasks = computed(() => {
+	return store.taskList.some(task => {
+		// 检查是否为 PDF 文件
+		const isPdf = task.fileName?.toLowerCase().endsWith('.pdf')
+		if (!isPdf) return false
+		// 检查是否处于处理阶段
+		const processingStatuses = ['uploading', 'processing', 'parsing', 'chunking', 'matching', 'vectorizing']
+		return processingStatuses.includes(task.status)
+	})
+})
 
 function handleClearCompleted() {
 	store.clearCompletedTasks()
@@ -386,6 +408,10 @@ defineExpose({
 	display: flex;
 	flex-direction: column;
 	height: 100%;
+}
+
+.pdf-mode-notice {
+	padding: 8px 16px 0;
 }
 
 .task-groups {

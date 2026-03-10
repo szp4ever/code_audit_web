@@ -2,6 +2,7 @@
 import { ref, onMounted, onUnmounted } from 'vue'
 import { NConfigProvider } from 'naive-ui'
 import { NaiveProvider, GlobalUploadManager, GlobalUploadFAB } from '@/components/common'
+import RouteProgress from '@/components/common/RouteProgress/index.vue'
 import { useTheme } from '@/hooks/useTheme'
 import { useLanguage } from '@/hooks/useLanguage'
 import { useUploadStore } from '@/store/modules/upload'
@@ -15,13 +16,13 @@ const uploadManagerRef = ref<InstanceType<typeof GlobalUploadManager> | null>(nu
 onMounted(() => {
 	uploadStore.restoreTasks()
 	uploadStore.waitingTasks.forEach(task => {
-		if (task.status === 'waiting' && !task.xhr) {
+		if ((task.status === 'waiting' || task.status === 'pending') && !task.xhr && task.file) {
 			uploadService.uploadTask(task.id)
 		}
 	})
 	uploadStore.processingTasks.forEach(task => {
-		if (task.attachId) {
-			uploadService.startProcessingPolling(task.id, task.attachId)
+		if (task.docId || task.attachId) {
+			uploadService.startProcessingPolling(task.id, String(task.docId || task.attachId))
 		}
 	})
 	uploadService.requestNotificationPermission()
@@ -44,9 +45,10 @@ function handleFABClick() {
     :locale="language"
   >
     <NaiveProvider>
+      <RouteProgress />
       <RouterView />
       <GlobalUploadManager ref="uploadManagerRef" />
-      <GlobalUploadFAB @click="handleFABClick" />
+      <GlobalUploadFAB show-always @click="handleFABClick" />
     </NaiveProvider>
   </NConfigProvider>
 </template>

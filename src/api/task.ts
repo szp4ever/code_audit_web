@@ -1,4 +1,5 @@
 import request from '@/utils/request/req'
+import { getToken } from '@/store/modules/auth/helper'
 
 // 任务优先级枚举
 export enum TaskPriority {
@@ -102,7 +103,7 @@ export async function downloadTaskFile(fileId: string, fileName: string) {
     const response = await fetch(`${import.meta.env.VITE_GLOB_API_URL}/task/file/download/${fileId}`, {
       method: 'GET',
       headers: {
-        Authorization: `Bearer ${localStorage.getItem('TOKEN') || ''}`,
+        Authorization: `Bearer ${getToken() || ''}`,
       },
     })
 

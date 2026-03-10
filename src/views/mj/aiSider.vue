@@ -114,7 +114,7 @@ const handleSelect = (key: string) => {
 <template>
 
 
-  <div class="flex-shrink-0 w-[70px] z-[1000]  h-full" v-if="!isMobile" data-tauri-drag-region>
+  <div class="flex-shrink-0 z-[1000] h-full" style="width: var(--ai-sider-width)" v-if="!isMobile" data-tauri-drag-region>
     <div
       class="flex h-full select-none flex-col items-center justify-between bg-[#e8eaf1] px-2 pt-4 pb-8 dark:bg-[#25272d]">
       <div class="flex flex-col space-y-4 flex-1 " data-tauri-drag-region>
@@ -131,7 +131,7 @@ const handleSelect = (key: string) => {
           </n-tooltip>
         </a>
 
-        <a @click="urouter.push(`/knowledge`)"
+        <a @click="urouter.push(`/knowledge-v2/list`)"
           class=" router-link-exact-active h-10 w-10 cursor-pointer rounded-xl bg-white duration-300 dark:bg-[#34373c] hover:bg-[#bbb] dark:hover:bg-[#555]">
           <n-tooltip placement="right" trigger="hover">
             <template #trigger>

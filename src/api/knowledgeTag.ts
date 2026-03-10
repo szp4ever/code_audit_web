@@ -17,7 +17,7 @@ export interface KnowledgeTagQuery {
 
 export function getKnowledgeTagList(params?: KnowledgeTagQuery) {
 	return request({
-		url: "/knowledge/tag/list",
+		url: "/knowledge/item/tag/list",
 		method: "get",
 		params: params || {},
 	});
@@ -25,7 +25,7 @@ export function getKnowledgeTagList(params?: KnowledgeTagQuery) {
 
 export function createKnowledgeTag(params: KnowledgeTagReq) {
 	return request({
-		url: "/knowledge/tag",
+		url: "/knowledge/item/tag",
 		method: "post",
 		data: params,
 	});
@@ -33,14 +33,14 @@ export function createKnowledgeTag(params: KnowledgeTagReq) {
 
 export function getKnowledgeTagsByItem(itemUuid: string) {
 	return request({
-		url: `/knowledge/tag/item/${itemUuid}`,
+		url: `/knowledge/item/tag/item/${itemUuid}`,
 		method: "get",
 	});
 }
 
 export function updateKnowledgeTag(id: number, params: KnowledgeTagReq) {
 	return request({
-		url: `/knowledge/tag`,
+		url: `/knowledge/item/tag`,
 		method: "put",
 		data: {
 			id,
@@ -51,7 +51,7 @@ export function updateKnowledgeTag(id: number, params: KnowledgeTagReq) {
 
 export function deleteKnowledgeTag(ids: number[]) {
 	return request({
-		url: `/knowledge/tag/${ids.join(',')}`,
+		url: `/knowledge/item/tag/${ids.join(',')}`,
 		method: "delete",
 	});
 }

@@ -1523,7 +1523,7 @@ const previousSortState = ref<{ orderBy?: string; order?: 'asc' | 'desc' }>({
 	order: 'asc'
 });
 
-// 排序选项
+// 排序选项（有搜索时在首位加入「相关程度」）
 const sortOptions = computed(() => {
 	const options = [
 		{ label: '按名称排序', value: 'kname' },
@@ -1534,7 +1534,9 @@ const sortOptions = computed(() => {
 		{ label: '按存储大小排序', value: 'data_size' },
 		{ label: '按分类排序', value: 'category' },
 	];
-	// 如果有搜索关键词，添加匹配度排序选项
+	if (searchKeyword.value.trim()) {
+		return [{ label: '按相关程度排序', value: 'relevance' }, ...options];
+	}
 	return options;
 });
 
@@ -2619,8 +2621,8 @@ function handleTagManageRefresh() {
 					刷新
 				</n-tooltip>
 				<GlobalUploadTrigger @click="uploadManagerRef?.show()" />
-				<!-- 列配置按钮（仅列表视图显示） -->
-				<n-tooltip v-if="viewMode === 'list'" trigger="hover" placement="bottom">
+				<!-- 列配置按钮（仅列表视图且有数据时，卡片视图无列概念） -->
+				<n-tooltip v-if="viewMode === 'list' && tableData.length > 0" trigger="hover" placement="bottom">
 					<template #trigger>
 						<n-button @click="showColumnConfig = true" quaternary>
 							<template #icon>
@@ -2864,8 +2866,8 @@ function handleTagManageRefresh() {
 			</n-empty>
 		</div>
 
-		<!-- 分页 -->
-			<div class="pagination-wrapper">
+		<!-- 分页（无数据时不显示） -->
+			<div v-if="pagination.itemCount > 0" class="pagination-wrapper">
 				<n-pagination
 					v-model:page="pagination.page"
 					:item-count="pagination.itemCount"

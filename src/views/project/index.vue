@@ -35,6 +35,7 @@ import { getUserInfo } from '@/api/user'
 import { fetchTaskList, TaskStatus } from '@/api/task'
 import { AddOutline, TrashOutline, CreateOutline, FolderOutline, ListOutline, ArchiveOutline } from '@vicons/ionicons5'
 import { useRouter } from 'vue-router'
+import { extractKeywords, highlightTextForRender } from '@/utils/searchHighlight'
 
 const router = useRouter()
 const ms = useMessage()
@@ -447,11 +448,13 @@ const columns = [
       tooltip: true
     },
     render: (row: Project) => {
+      const keywords = extractKeywords(searchKeyword.value)
+      const content = keywords.length ? highlightTextForRender(row.name || '', keywords, h) : [row.name || '']
       return h(NButton, {
         text: true,
         type: 'primary',
         onClick: () => viewProjectTasks(row)
-      }, { default: () => row.name })
+      }, { default: () => content.length === 1 ? content[0] : h('span', {}, content) })
     }
   },
   {

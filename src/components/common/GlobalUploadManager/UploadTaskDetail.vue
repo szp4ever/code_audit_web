@@ -30,11 +30,19 @@
 						</div>
 					</n-descriptions-item>
 					<n-descriptions-item label="文件大小">{{ formatFileSize(task.fileSize) }}</n-descriptions-item>
-					<n-descriptions-item label="状态">
-						<n-tag :type="getStatusType(task.status)" size="small">
-							{{ getStatusLabel() }}
-						</n-tag>
-					</n-descriptions-item>
+				<n-descriptions-item label="状态">
+					<n-tooltip v-if="isPdfFile() && isParsingStage()" trigger="hover">
+						<template #trigger>
+							<n-tag :type="getStatusType(task.status)" size="small" style="cursor: help;">
+								{{ getStatusLabel() }}
+							</n-tag>
+						</template>
+						<span>当前使用标准 PDF 解析模式。如需更好的复杂 PDF 解析效果，可配置 MinerU 增强模式。</span>
+					</n-tooltip>
+					<n-tag v-else :type="getStatusType(task.status)" size="small">
+						{{ getStatusLabel() }}
+					</n-tag>
+				</n-descriptions-item>
 					<n-descriptions-item label="创建时间">{{ formatTime(task.createdAt) }}</n-descriptions-item>
 					<n-descriptions-item label="更新时间">{{ formatTime(task.updatedAt) }}</n-descriptions-item>
 				</n-descriptions>
@@ -58,91 +66,62 @@
 				<h3 class="section-title">处理进度</h3>
 				<div class="processing-status">
 					<n-tag :type="getStatusTagType()" size="small">{{ getStatusLabel() }}</n-tag>
-					<n-progress
-						v-if="task.processingProgress !== undefined"
-						:percentage="task.processingProgress"
-						:show-indicator="false"
-						style="margin-top: 8px;"
-					/>
+				<n-progress
+					:percentage="getDetailedProgress()"
+					:show-indicator="false"
+					:height="8"
+					:border-radius="4"
+					:fill-border-radius="4"
+					style="margin-top: 8px;"
+				/>
 				</div>
 				<div class="processing-stages">
-					<div class="stage-item" :class="{ completed: getProcessingStage() >= 1 }">
-						<SvgIcon 
-							v-if="getProcessingStage() >= 1" 
-							icon="ri:check-circle-line" 
-							style="font-size: 16px; color: #52C41A;" 
+					<div class="stage-item" :class="{ completed: getProcessingStage() > 1, active: getProcessingStage() === 1 }">
+						<SvgIcon
+							v-if="getProcessingStage() > 1"
+							icon="ri:check-circle-line"
+							style="font-size: 16px; color: #52C41A;"
 						/>
-						<SvgIcon 
-							v-else 
-							icon="ri:loader-4-line" 
-							style="font-size: 16px; animation: spin 1s linear infinite;" 
+						<SvgIcon
+							v-else-if="getProcessingStage() === 1"
+							icon="ri:loader-4-line"
+							style="font-size: 16px; animation: spin 1s linear infinite; color: #1890FF;"
+						/>
+						<SvgIcon
+							v-else
+							icon="ri:circle-line"
+							style="font-size: 16px; color: #8C8C8C;"
 						/>
 						<span class="stage-label">解析文档</span>
 					</div>
-					<div class="stage-item" :class="{ completed: getProcessingStage() >= 2 }">
-						<SvgIcon 
-							v-if="getProcessingStage() >= 2" 
-							icon="ri:check-circle-line" 
-							style="font-size: 16px; color: #52C41A;" 
+					<div class="stage-item" :class="{ completed: getProcessingStage() > 2, active: getProcessingStage() === 2 }">
+						<SvgIcon
+							v-if="getProcessingStage() > 2"
+							icon="ri:check-circle-line"
+							style="font-size: 16px; color: #52C41A;"
 						/>
-						<SvgIcon 
-							v-else 
-							icon="ri:loader-4-line" 
-							style="font-size: 16px; animation: spin 1s linear infinite;" 
+						<SvgIcon
+							v-else-if="getProcessingStage() === 2"
+							icon="ri:loader-4-line"
+							style="font-size: 16px; animation: spin 1s linear infinite; color: #1890FF;"
+						/>
+						<SvgIcon
+							v-else
+							icon="ri:circle-line"
+							style="font-size: 16px; color: #8C8C8C;"
 						/>
 						<span class="stage-label">文本分块</span>
 					</div>
 					<div class="stage-item" :class="{ completed: getProcessingStage() >= 3, active: getProcessingStage() === 3 }">
-						<SvgIcon 
-							v-if="getProcessingStage() > 3" 
-							icon="ri:check-circle-line" 
-							style="font-size: 16px; color: #52C41A;" 
+						<SvgIcon
+							v-if="getProcessingStage() >= 3"
+							icon="ri:check-circle-line"
+							style="font-size: 16px; color: #52C41A;"
 						/>
-						<SvgIcon 
-							v-else-if="getProcessingStage() === 3" 
-							icon="ri:loader-4-line" 
-							style="font-size: 16px; animation: spin 1s linear infinite; color: #1890FF;" 
-						/>
-						<SvgIcon 
-							v-else 
-							icon="ri:circle-line" 
-							style="font-size: 16px; color: #8C8C8C;" 
-						/>
-						<span class="stage-label">相似度匹配</span>
-					</div>
-					<div class="stage-item" :class="{ completed: getProcessingStage() >= 4, active: getProcessingStage() === 4 }">
-						<SvgIcon 
-							v-if="getProcessingStage() > 4" 
-							icon="ri:check-circle-line" 
-							style="font-size: 16px; color: #52C41A;" 
-						/>
-						<SvgIcon 
-							v-else-if="getProcessingStage() === 4" 
-							icon="ri:loader-4-line" 
-							style="font-size: 16px; animation: spin 1s linear infinite; color: #1890FF;" 
-						/>
-						<SvgIcon 
-							v-else 
-							icon="ri:circle-line" 
-							style="font-size: 16px; color: #8C8C8C;" 
-						/>
-						<span class="stage-label">创建条目</span>
-					</div>
-					<div class="stage-item" :class="{ completed: getProcessingStage() >= 5, active: getProcessingStage() === 5 }">
-						<SvgIcon 
-							v-if="getProcessingStage() > 5" 
-							icon="ri:check-circle-line" 
-							style="font-size: 16px; color: #52C41A;" 
-						/>
-						<SvgIcon 
-							v-else-if="getProcessingStage() === 5" 
-							icon="ri:loader-4-line" 
-							style="font-size: 16px; animation: spin 1s linear infinite; color: #1890FF;" 
-						/>
-						<SvgIcon 
-							v-else 
-							icon="ri:circle-line" 
-							style="font-size: 16px; color: #8C8C8C;" 
+						<SvgIcon
+							v-else
+							icon="ri:circle-line"
+							style="font-size: 16px; color: #8C8C8C;"
 						/>
 						<span class="stage-label">向量化存储</span>
 					</div>
@@ -209,7 +188,7 @@
 
 <script setup lang="ts">
 import { ref, computed } from 'vue'
-import { NDrawer, NButton, NSpace, NDescriptions, NDescriptionsItem, NProgress, NTag, NAlert, useDialog, useMessage } from 'naive-ui'
+import { NDrawer, NButton, NSpace, NDescriptions, NDescriptionsItem, NProgress, NTag, NAlert, NTooltip, useDialog, useMessage } from 'naive-ui'
 import { SvgIcon } from '@/components/common'
 import { useUploadStore } from '@/store/modules/upload'
 import { uploadService } from '@/services/uploadService'
@@ -269,9 +248,13 @@ function formatTime(timestamp: number): string {
 }
 
 const isProcessingStatus = computed(() => {
+	//新业务逻辑：3阶段处理流程
+	//检查task.status（前端状态）或task.processingStatus（后端详细状态）
+	const processingStatuses = ['PARSING', 'CHUNKING', 'VECTORIZING']
 	return props.task?.status === 'processing' || props.task?.status === 'parsing' 
 		|| props.task?.status === 'chunking' || props.task?.status === 'matching'
 		|| props.task?.status === 'creating_items' || props.task?.status === 'vectorizing'
+		|| (props.task?.processingStatus && processingStatuses.includes(props.task.processingStatus))
 })
 
 function getStatusType(status: string): 'default' | 'success' | 'error' | 'warning' | 'info' {
@@ -286,15 +269,12 @@ function getStatusType(status: string): 'default' | 'success' | 'error' | 'warni
 
 function getStatusLabel(status?: string): string {
 	if (!status) status = props.task?.status || ''
+	//新业务逻辑：3阶段处理流程 (PARSING -> CHUNKING -> VECTORIZING)
 	const labels: Record<string, string> = {
 		waiting: '等待上传',
 		uploading: '上传中',
 		parsing: '解析文档中',
 		chunking: '文本分块中',
-		matching: '相似度匹配中',
-		user_review_matching: '待审阅匹配结果',
-		creating_items: '创建条目中',
-		user_review_items: '待审阅新条目',
 		vectorizing: '向量化存储中',
 		processing: '处理中',
 		success: '上传成功',
@@ -308,11 +288,28 @@ function getStatusLabel(status?: string): string {
 
 function getStatusTagType(): 'default' | 'info' | 'success' | 'warning' | 'error' {
 	const status = props.task?.status
-	if (status === 'user_review_matching' || status === 'user_review_items') return 'warning'
 	if (status === 'error' || status === 'failed') return 'error'
 	if (status === 'success' || status === 'completed') return 'success'
 	if (status === 'cancelled') return 'warning'
 	return 'info'
+}
+
+/**
+ * 检查是否为 PDF 文件
+ */
+function isPdfFile(): boolean {
+	return props.task?.fileName?.toLowerCase().endsWith('.pdf') || false
+}
+
+/**
+ * 检查是否处于解析阶段（显示 MinerU 提示的时机）
+ */
+function isParsingStage(): boolean {
+	if (!props.task) return false
+	const status = props.task.processingStatus || props.task.status
+	return status === 'PARSING' || status === 'parsing' ||
+		status === 'CHUNKING' || status === 'chunking' ||
+		status === 'processing'
 }
 
 function getUploadedChunks(): number {
@@ -322,36 +319,68 @@ function getUploadedChunks(): number {
 
 function getProcessingStage(): number {
 	if (!props.task) return 0
+	//新业务逻辑：3阶段处理流程 (PARSING -> CHUNKING -> VECTORIZING)
 	//优先使用processingStatus（从后端获取的详细状态）
 	if (props.task.processingStatus) {
 		const status = props.task.processingStatus
 		if (status === 'PARSING') return 1
 		if (status === 'CHUNKING') return 2
-		if (status === 'MATCHING') return 3
-		if (status === 'USER_REVIEW_MATCHING') return 3
-		if (status === 'CREATING_ITEMS') return 4
-		if (status === 'USER_REVIEW_ITEMS') return 4
-		if (status === 'VECTORIZING') return 5
-		if (status === 'COMPLETED') return 5
+		if (status === 'VECTORIZING') return 3
+		if (status === 'COMPLETED') return 3
 		return 0
 	}
 	//降级使用status（前端状态）
 	const status = props.task.status
 	if (status === 'parsing') return 1
 	if (status === 'chunking') return 2
-	if (status === 'matching') return 3
-	if (status === 'user_review_matching') return 3
-	if (status === 'creating_items') return 4
-	if (status === 'user_review_items') return 4
-	if (status === 'vectorizing') return 5
-	if (status === 'completed') return 5
+	if (status === 'vectorizing') return 3
+	if (status === 'completed') return 3
 	return 0
+}
+
+/**
+ * 获取细粒度进度（基于后端返回的实际处理进度）
+ * 新业务逻辑：3阶段处理流程 (PARSING -> CHUNKING -> VECTORIZING)
+ */
+function getDetailedProgress(): number {
+	//优先使用processingProgress（后端计算的详细进度）
+	if (props.task?.processingProgress !== undefined && props.task.processingProgress > 0) {
+		return props.task.processingProgress
+	}
+
+	//如果没有processingProgress，根据状态计算默认进度
+	if (props.task?.processingStatus) {
+		const status = props.task.processingStatus
+		const defaultProgress: Record<string, number> = {
+			'PARSING': 15,
+			'CHUNKING': 50,
+			'VECTORIZING': 85,
+			'COMPLETED': 100,
+		}
+		if (defaultProgress[status] !== undefined) {
+			return defaultProgress[status]
+		}
+	}
+	//降级使用status
+	const status = props.task?.status
+	const defaultProgress: Record<string, number> = {
+		'parsing': 15,
+		'chunking': 50,
+		'vectorizing': 85,
+		'completed': 100,
+	}
+	if (status && defaultProgress[status] !== undefined) {
+		return defaultProgress[status]
+	}
+	//默认返回5%，表示处理中
+	return 5
 }
 
 function handleRetry() {
 	if (props.task) {
+		// 重试任务：重置状态为 pending，让队列统一调度，避免绕过并发控制
 		store.retryTask(props.task.id)
-		uploadService.uploadTask(props.task.id)
+		uploadService.processQueue()
 	}
 }
 

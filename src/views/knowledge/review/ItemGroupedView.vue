@@ -318,8 +318,10 @@ const searchKeyword = ref('')
 const filterSeverity = ref<string[]>([])
 const filterLanguage = ref<string[]>([])
 const filterVulnerabilityType = ref<string[]>([])
-const sortBy = ref<'fragmentCount' | 'severity' | 'cvss_score' | 'title' | 'create_time'>('fragmentCount')
+const sortBy = ref<'fragmentCount' | 'severity' | 'cvss_score' | 'title' | 'create_time' | 'relevance'>('fragmentCount')
 const sortOrder = ref<'asc' | 'desc'>('desc')
+/** 清空搜索时恢复的排序状态 */
+const previousSortState = ref<{ sortBy: string; sortOrder: 'asc' | 'desc' }>({ sortBy: 'fragmentCount', sortOrder: 'desc' })
 const expandedItemUuids = ref<string[]>([])
 const loading = ref(false)
 const pagination = reactive({
@@ -492,8 +494,8 @@ async function loadItemDetails() {
 			languages: filterLanguage.value.length > 0 ? filterLanguage.value : undefined,
 			severities: filterSeverity.value.length > 0 ? filterSeverity.value : undefined,
 			vulnerabilityTypes: undefined,
-			orderBy: (sortBy.value === 'fragmentCount' || sortBy.value === 'title') ? 'create_time' : sortBy.value,
-			order: (sortBy.value === 'fragmentCount' || sortBy.value === 'title') ? 'desc' : sortOrder.value,
+			orderBy: (sortBy.value === 'fragmentCount' || sortBy.value === 'title' || sortBy.value === 'relevance') ? 'create_time' : sortBy.value,
+			order: (sortBy.value === 'fragmentCount' || sortBy.value === 'title' || sortBy.value === 'relevance') ? 'desc' : sortOrder.value,
 			pageNum: pagination.page,
 			pageSize: pagination.pageSize,
 		}
@@ -631,6 +633,21 @@ watch(() => props.fragments, (newFragments, oldFragments) => {
 	}
 }, { deep: true, immediate: true })
 
+watch(searchKeyword, (newKw, oldKw) => {
+	const wasSearching = !!(oldKw || '').trim()
+	const isSearching = !!newKw.trim()
+	if (!wasSearching && isSearching) {
+		previousSortState.value = { sortBy: sortBy.value, sortOrder: sortOrder.value }
+		sortBy.value = 'relevance'
+		sortOrder.value = 'desc'
+	} else if (wasSearching && !isSearching) {
+		sortBy.value = previousSortState.value.sortBy as any
+		sortOrder.value = previousSortState.value.sortOrder
+	} else if (wasSearching && isSearching && sortBy.value !== 'relevance') {
+		sortBy.value = 'relevance'
+		sortOrder.value = 'desc'
+	}
+})
 watch([searchKeyword, filterSeverity, filterLanguage, filterVulnerabilityType, sortBy, sortOrder], () => {
 	pagination.page = 1
 	if (loadItemDetailsLock) return
@@ -682,12 +699,18 @@ function handleFilter() {
 	loadItemDetails()
 }
 
-const sortOptions = computed(() => [
-	{ label: '按片段数排序', value: 'fragmentCount' },
-	{ label: '按风险等级排序', value: 'severity' },
-	{ label: '按标题排序', value: 'title' },
-	{ label: '按创建时间排序', value: 'create_time' },
-])
+const sortOptions = computed(() => {
+	const base = [
+		{ label: '按片段数排序', value: 'fragmentCount' },
+		{ label: '按风险等级排序', value: 'severity' },
+		{ label: '按标题排序', value: 'title' },
+		{ label: '按创建时间排序', value: 'create_time' },
+	]
+	if (searchKeyword.value.trim()) {
+		return [{ label: '按相关程度', value: 'relevance' }, ...base]
+	}
+	return base
+})
 
 function getSortPlaceholder(): string {
 	const currentOption = sortOptions.value.find(opt => opt.value === sortBy.value)
