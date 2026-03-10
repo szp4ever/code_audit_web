@@ -69,7 +69,6 @@ const pagination = ref({
 	},
 })
 
-// ✨ 修改点 1：报告类型筛选下拉选项，value 必须与后端数据库里的标识符完全一致
 const reportTypeOptions = [
 	{ label: '编码规范检查报告', value: 'code_standard_check' },
 	{ label: '数据安全审计报告', value: 'data_security' },       // 注意：请确保 value 与后端一致

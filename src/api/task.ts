@@ -209,7 +209,9 @@ export interface Vulnerability {
   fixSuggestion: string // 修复建议
   category?: string // 漏洞分类
   createdAt?: string
-
+  isFalsePositive?: boolean
+  _pendingFP?: boolean
+  _pendingRestore?: boolean
 }
 
 // 任务漏洞详情响应接口
@@ -254,4 +256,25 @@ export function fetchSysTemplateList(params?: any) {
     method: 'get',
     params,
   } as any)
+}
+export interface FalsePositiveUpdateReqDTO {
+  markIds: (number | string)[] // 准备标记为误报的漏洞ID列表
+  restoreIds: (number | string)[] // 准备恢复正常的漏洞ID列表
+  taskId: number | string // 所属任务ID，用于后端重新计分
+}
+
+export function updateFalsePositiveStatus(data: FalsePositiveUpdateReqDTO) {
+  return request({
+    url: '/task/update-false-positive',
+    method: 'post',
+    data,
+  } as any)
+}
+
+export function archiveToKnowledgeBase(data: any) {
+  return request({
+    url: '/knowledge/item/add', // 替换为你 RuoYi 后端实际的知识库新增路由 (例如 /system/knowledge/add)
+    method: 'post',
+    data,
+  })
 }
