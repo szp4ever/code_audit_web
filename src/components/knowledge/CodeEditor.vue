@@ -79,11 +79,11 @@ import { SvgIcon } from '@/components/common';
 import hljs from 'highlight.js';
 import 'highlight.js/styles/github.css'; // 使用 GitHub 主题
 import * as prettier from 'prettier/standalone';
-import * as parserBabel from 'prettier/parser-babel';
-import * as parserTypeScript from 'prettier/parser-typescript';
-import * as parserHtml from 'prettier/parser-html';
-import * as parserCss from 'prettier/parser-postcss';
-import * as parserJson from 'prettier/parser-json';
+import * as pluginBabel from 'prettier/plugins/babel.mjs';
+import * as pluginTypeScript from 'prettier/plugins/typescript.mjs';
+import * as pluginHtml from 'prettier/plugins/html.mjs';
+import * as pluginPostcss from 'prettier/plugins/postcss.mjs';
+import * as pluginEstree from 'prettier/plugins/estree.mjs';
 
 interface Props {
 	modelValue: string;
@@ -208,17 +208,44 @@ async function handleCopy() {
 	}
 }
 
-// 格式化代码（简单实现，可以扩展）
-function handleFormat() {
+// 格式化代码（Prettier 3）
+async function handleFormat() {
 	if (!codeValue.value) return;
-	
-	// 简单的格式化：统一缩进
+
+	const lang = selectedLanguage.value;
+	const parserMap: Record<string, string> = {
+		javascript: 'babel',
+		typescript: 'typescript',
+		json: 'json',
+		xml: 'html',
+		css: 'css',
+	};
+	const parser = parserMap[lang];
+
+	if (parser) {
+		try {
+			const plugins: unknown[] = [];
+			if (parser === 'babel') plugins.push((pluginBabel as { default: unknown }).default, (pluginEstree as { default: unknown }).default);
+			else if (parser === 'typescript') plugins.push((pluginTypeScript as { default: unknown }).default, (pluginEstree as { default: unknown }).default);
+			else if (parser === 'json') plugins.push((pluginEstree as { default: unknown }).default);
+			else if (parser === 'html') plugins.push((pluginHtml as { default: unknown }).default);
+			else if (parser === 'css') plugins.push((pluginPostcss as { default: unknown }).default);
+
+			const formatted = await prettier.format(codeValue.value, { parser, plugins });
+			codeValue.value = formatted;
+			emit('update:modelValue', formatted);
+		} catch (err) {
+			console.warn('Prettier格式化失败，使用简单格式:', err);
+			fallbackFormat();
+		}
+	} else {
+		fallbackFormat();
+	}
+}
+
+function fallbackFormat() {
 	let formatted = codeValue.value;
-	
-	// 移除行尾空格
 	formatted = formatted.split('\n').map(line => line.trimEnd()).join('\n');
-	
-	// 可以添加更复杂的格式化逻辑
 	codeValue.value = formatted;
 	emit('update:modelValue', formatted);
 }

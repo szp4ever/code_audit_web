@@ -33,6 +33,7 @@
   },
   "dependencies": {
     "@tinyflow-ai/vue": "^0.0.9",
+    "date-fns": "^3.6.0",
     "@traptitech/markdown-it-katex": "^3.6.0",
     "@vicons/ionicons5": "^0.13.0",
     "@vue-office/pdf": "^2.0.10",
