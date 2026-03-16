@@ -272,17 +272,11 @@
 							</div>
 						</n-gi>
 						<n-gi :span="24" v-if="calculatedRiskScore">
-							<div class="risk-score-display">
-								<div class="risk-score-value">
-									<span class="score-number">{{ calculatedRiskScore.exact !== null ? calculatedRiskScore.exact.toFixed(1) : `${calculatedRiskScore.min?.toFixed(1)} - ${calculatedRiskScore.max?.toFixed(1)}` }}</span>
-									<span class="score-label">/ 10.0</span>
-								</div>
-								<div v-if="calculatedRiskLevel" class="risk-level-badge">
-									<n-tag :style="{ backgroundColor: calculatedRiskLevel.color, color: '#FFFFFF' }">
-										{{ calculatedRiskLevel.label }}
-									</n-tag>
-								</div>
-							</div>
+							<RiskScoreCard
+								:score="calculatedRiskScore.exact ?? formValue.cvssScore ?? undefined"
+								:score-range="calculatedRiskScore.exact == null && calculatedRiskScore.min != null && calculatedRiskScore.max != null ? { min: calculatedRiskScore.min, max: calculatedRiskScore.max } : undefined"
+								:risk-level="calculatedRiskLevel ?? undefined"
+							/>
 						</n-gi>
 					</n-grid>
 				</n-card>
@@ -304,6 +298,7 @@ import { ref, watch, computed, onMounted, nextTick } from 'vue'
 import { NCard, NForm, NFormItem, NInput, NSelect, NGrid, NGi, NSpace, NTag, NButton, NSpin, useMessage, FormInst, FormRules } from 'naive-ui'
 import { SvgIcon } from '@/components/common'
 import CweSelector from '@/components/knowledge/CweSelector.vue'
+import RiskScoreCard from '@/components/knowledge/RiskScoreCard.vue'
 import TagPicker from '@/components/knowledge/TagPicker.vue'
 import CodeEditor from '@/components/knowledge/CodeEditor.vue'
 import { getKnowledgeTagList, createKnowledgeTag } from '@/api/knowledgeTag'
@@ -1012,37 +1007,6 @@ onMounted(async () => {
 	font-size: 12px;
 	color: #999;
 	margin-top: 2px;
-}
-
-.risk-score-display {
-	display: flex;
-	align-items: center;
-	gap: 16px;
-	padding: 16px;
-	background: #F5F5F5;
-	border-radius: 8px;
-}
-
-.risk-score-value {
-	display: flex;
-	align-items: baseline;
-	gap: 4px;
-}
-
-.score-number {
-	font-size: 24px;
-	font-weight: 600;
-	color: #333;
-}
-
-.score-label {
-	font-size: 14px;
-	color: #666;
-}
-
-.risk-level-badge {
-	display: flex;
-	align-items: center;
 }
 
 .cwe-selector-trigger {

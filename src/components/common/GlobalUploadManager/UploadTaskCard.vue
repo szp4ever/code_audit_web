@@ -66,10 +66,19 @@
 
 		<div v-if="isProcessingStatus" class="task-processing">
 			<div class="processing-status">
-				<n-tag :type="getStatusTagType()" size="small">{{ getStatusLabel() }}</n-tag>
+				<n-tooltip v-if="isPdfFile() && isParsingStage()" trigger="hover">
+					<template #trigger>
+						<n-tag :type="getStatusTagType()" size="small" style="cursor: help;">{{ getStatusLabel() }}</n-tag>
+					</template>
+					<span>当前使用标准 PDF 解析模式。如需更好的复杂 PDF 解析效果，可配置 MinerU 增强模式。</span>
+				</n-tooltip>
+				<n-tag v-else :type="getStatusTagType()" size="small">{{ getStatusLabel() }}</n-tag>
 				<n-progress
 					:percentage="getDetailedProgress()"
-					:show-indicator="true"
+					:show-indicator="false"
+					:height="6"
+					:border-radius="3"
+					:fill-border-radius="3"
 					style="margin-top: 8px;"
 				/>
 				<div class="progress-info" style="margin-top: 4px; font-size: 12px; color: #8C8C8C; display: flex; justify-content: space-between; align-items: center;">
@@ -91,7 +100,7 @@
 					<SvgIcon 
 						v-else-if="getProcessingStage() === 1" 
 						icon="ri:loader-4-line" 
-						class="stage-icon active-icon"
+						class="stage-icon active-icon spin"
 					/>
 					<SvgIcon 
 						v-else 
@@ -110,7 +119,7 @@
 					<SvgIcon 
 						v-else-if="getProcessingStage() === 2" 
 						icon="ri:loader-4-line" 
-						class="stage-icon active-icon"
+						class="stage-icon active-icon spin"
 					/>
 					<SvgIcon 
 						v-else 
@@ -129,45 +138,7 @@
 					<SvgIcon 
 						v-else-if="getProcessingStage() === 3" 
 						icon="ri:loader-4-line" 
-						class="stage-icon active-icon"
-					/>
-					<SvgIcon 
-						v-else 
-						icon="ri:circle-line" 
-						class="stage-icon pending-icon"
-					/>
-					相似度匹配
-				</span>
-				<span class="stage-arrow">→</span>
-				<span :class="{ completed: getProcessingStage() >= 4, active: getProcessingStage() === 4 }" class="stage-item">
-					<SvgIcon 
-						v-if="getProcessingStage() > 4" 
-						icon="ri:check-circle-line" 
-						class="stage-icon completed-icon"
-					/>
-					<SvgIcon 
-						v-else-if="getProcessingStage() === 4" 
-						icon="ri:loader-4-line" 
-						class="stage-icon active-icon"
-					/>
-					<SvgIcon 
-						v-else 
-						icon="ri:circle-line" 
-						class="stage-icon pending-icon"
-					/>
-					创建条目
-				</span>
-				<span class="stage-arrow">→</span>
-				<span :class="{ completed: getProcessingStage() >= 5, active: getProcessingStage() === 5 }" class="stage-item">
-					<SvgIcon 
-						v-if="getProcessingStage() > 5" 
-						icon="ri:check-circle-line" 
-						class="stage-icon completed-icon"
-					/>
-					<SvgIcon 
-						v-else-if="getProcessingStage() === 5" 
-						icon="ri:loader-4-line" 
-						class="stage-icon active-icon"
+						class="stage-icon active-icon spin"
 					/>
 					<SvgIcon 
 						v-else 
@@ -177,128 +148,6 @@
 					向量化存储
 				</span>
 			</div>
-		</div>
-
-		<div v-if="isReviewPending" class="task-review-pending">
-			<div class="review-status-header">
-				<n-tag type="warning" size="small" style="margin-bottom: 12px;">
-					{{ getStatusLabel() }}
-				</n-tag>
-			</div>
-			<div class="processing-stages">
-				<span :class="{ completed: getProcessingStage() >= 1, active: getProcessingStage() === 1 }" class="stage-item">
-					<SvgIcon 
-						v-if="getProcessingStage() > 1" 
-						icon="ri:check-circle-line" 
-						class="stage-icon completed-icon"
-					/>
-					<SvgIcon 
-						v-else-if="getProcessingStage() === 1" 
-						icon="ri:loader-4-line" 
-						class="stage-icon active-icon"
-					/>
-					<SvgIcon 
-						v-else 
-						icon="ri:circle-line" 
-						class="stage-icon pending-icon"
-					/>
-					解析文档
-				</span>
-				<span class="stage-arrow">→</span>
-				<span :class="{ completed: getProcessingStage() >= 2, active: getProcessingStage() === 2 }" class="stage-item">
-					<SvgIcon 
-						v-if="getProcessingStage() > 2" 
-						icon="ri:check-circle-line" 
-						class="stage-icon completed-icon"
-					/>
-					<SvgIcon 
-						v-else-if="getProcessingStage() === 2" 
-						icon="ri:loader-4-line" 
-						class="stage-icon active-icon"
-					/>
-					<SvgIcon 
-						v-else 
-						icon="ri:circle-line" 
-						class="stage-icon pending-icon"
-					/>
-					文本分块
-				</span>
-				<span class="stage-arrow">→</span>
-				<span :class="{ completed: getProcessingStage() >= 3, active: getProcessingStage() === 3, breakpoint: isBreakpointAtStage(3) }" class="stage-item">
-					<SvgIcon 
-						v-if="getProcessingStage() > 3" 
-						icon="ri:check-circle-line" 
-						class="stage-icon completed-icon"
-					/>
-					<SvgIcon 
-						v-else-if="isBreakpointAtStage(3)" 
-						icon="ri:time-line" 
-						class="stage-icon breakpoint-icon"
-					/>
-					<SvgIcon 
-						v-else-if="getProcessingStage() === 3" 
-						icon="ri:loader-4-line" 
-						class="stage-icon active-icon"
-					/>
-					<SvgIcon 
-						v-else 
-						icon="ri:circle-line" 
-						class="stage-icon pending-icon"
-					/>
-					相似度匹配
-				</span>
-				<span class="stage-arrow">→</span>
-				<span :class="{ completed: getProcessingStage() >= 4, active: getProcessingStage() === 4, breakpoint: isBreakpointAtStage(4) }" class="stage-item">
-					<SvgIcon 
-						v-if="getProcessingStage() > 4" 
-						icon="ri:check-circle-line" 
-						class="stage-icon completed-icon"
-					/>
-					<SvgIcon 
-						v-else-if="isBreakpointAtStage(4)" 
-						icon="ri:time-line" 
-						class="stage-icon breakpoint-icon"
-					/>
-					<SvgIcon 
-						v-else-if="getProcessingStage() === 4" 
-						icon="ri:loader-4-line" 
-						class="stage-icon active-icon"
-					/>
-					<SvgIcon 
-						v-else 
-						icon="ri:circle-line" 
-						class="stage-icon pending-icon"
-					/>
-					创建条目
-				</span>
-				<span class="stage-arrow">→</span>
-				<span :class="{ completed: getProcessingStage() >= 5, active: getProcessingStage() === 5 }" class="stage-item">
-					<SvgIcon 
-						v-if="getProcessingStage() > 5" 
-						icon="ri:check-circle-line" 
-						class="stage-icon completed-icon"
-					/>
-					<SvgIcon 
-						v-else-if="getProcessingStage() === 5" 
-						icon="ri:loader-4-line" 
-						class="stage-icon active-icon"
-					/>
-					<SvgIcon 
-						v-else 
-						icon="ri:circle-line" 
-						class="stage-icon pending-icon"
-					/>
-					向量化存储
-				</span>
-			</div>
-			<n-button
-				type="primary"
-				size="small"
-				style="width: 100%; margin-top: 12px; background-color: #FA8C16;"
-				@click.stop="handleContinueReview"
-			>
-				继续处理
-			</n-button>
 		</div>
 
 		<div v-if="(task.status === 'error' || task.status === 'failed') && task.error" class="task-error-message">
@@ -323,7 +172,7 @@
 
 <script setup lang="ts">
 import { computed } from 'vue'
-import { NButton, NProgress, NTag, NAlert, useMessage, useDialog } from 'naive-ui'
+import { NButton, NProgress, NTag, NAlert, NTooltip, useMessage, useDialog } from 'naive-ui'
 import { SvgIcon } from '@/components/common'
 import { useUploadStore } from '@/store/modules/upload'
 import { uploadService } from '@/services/uploadService'
@@ -339,27 +188,24 @@ const store = useUploadStore()
 const message = useMessage()
 const dialog = useDialog()
 
-const isReviewPending = computed(() => {
-	return props.task.status === 'user_review_matching' || props.task.status === 'user_review_items'
-})
-
 const isProcessingStatus = computed(() => {
-	const result = props.task.status === 'processing' || props.task.status === 'parsing' 
-		|| props.task.status === 'chunking' || props.task.status === 'matching'
-		|| props.task.status === 'creating_items' || props.task.status === 'vectorizing'
-	return result
+	//新业务逻辑：3阶段处理流程
+	//检查task.status（前端状态）或task.processingStatus（后端详细状态）
+	const processingStatuses = ['PARSING', 'CHUNKING', 'VECTORIZING']
+	return props.task.status === 'processing'
+		|| props.task.status === 'parsing'
+		|| props.task.status === 'chunking'
+		|| props.task.status === 'vectorizing'
+		|| (props.task.processingStatus && processingStatuses.includes(props.task.processingStatus))
 })
 
 function getStatusLabel(): string {
+	//新业务逻辑：3阶段处理流程 (PARSING -> CHUNKING -> VECTORIZING)
 	//优先使用processingStatus（后端详细状态）
 	if (props.task.processingStatus) {
 		const statusLabels: Record<string, string> = {
 			'PARSING': '解析文档中',
 			'CHUNKING': '文本分块中',
-			'MATCHING': '相似度匹配中',
-			'USER_REVIEW_MATCHING': '待审阅匹配结果',
-			'CREATING_ITEMS': '创建条目中',
-			'USER_REVIEW_ITEMS': '待审阅新条目',
 			'VECTORIZING': '向量化存储中',
 			'COMPLETED': '处理完成',
 			'FAILED': '处理失败',
@@ -376,10 +222,6 @@ function getStatusLabel(): string {
 		'processing': '处理中',
 		'parsing': '解析文档中',
 		'chunking': '文本分块中',
-		'matching': '相似度匹配中',
-		'user_review_matching': '待审阅匹配结果',
-		'creating_items': '创建条目中',
-		'user_review_items': '待审阅新条目',
 		'vectorizing': '向量化存储中',
 		'completed': '处理完成',
 		'success': '上传成功',
@@ -391,59 +233,65 @@ function getStatusLabel(): string {
 }
 
 function getStatusTagType(): 'default' | 'info' | 'success' | 'warning' | 'error' {
-	if (isReviewPending.value) return 'warning'
 	if (props.task.status === 'error' || props.task.status === 'failed') return 'error'
 	if (props.task.status === 'success' || props.task.status === 'completed') return 'success'
 	return 'info'
 }
 
+/**
+ * 检查是否为 PDF 文件
+ */
+function isPdfFile(): boolean {
+	return props.task.fileName.toLowerCase().endsWith('.pdf')
+}
+
+/**
+ * 检查是否处于解析阶段（显示 MinerU 提示的时机）
+ */
+function isParsingStage(): boolean {
+	const status = props.task.processingStatus || props.task.status
+	return status === 'PARSING' || status === 'parsing' ||
+		status === 'CHUNKING' || status === 'chunking' ||
+		status === 'processing'
+}
+
 function getProcessingStage(): number {
+	// 新业务逻辑：3阶段处理流程 (PARSING -> CHUNKING -> VECTORIZING)
 	// 优先使用 processingStatus（从后端获取的详细状态）
 	if (props.task.processingStatus) {
 		const status = props.task.processingStatus
 		if (status === 'PARSING') return 1
 		if (status === 'CHUNKING') return 2
-		if (status === 'MATCHING') return 3
-		if (status === 'USER_REVIEW_MATCHING') return 3
-		if (status === 'CREATING_ITEMS') return 4
-		if (status === 'USER_REVIEW_ITEMS') return 4
-		if (status === 'VECTORIZING') return 5
-		if (status === 'COMPLETED') return 5
+		if (status === 'VECTORIZING') return 3
+		if (status === 'COMPLETED') return 3
 		return 0
 	}
 	// 降级使用 status（前端状态）
 	const status = props.task.status
 	if (status === 'parsing') return 1
 	if (status === 'chunking') return 2
-	if (status === 'matching') return 3
-	if (status === 'user_review_matching') return 3
-	if (status === 'creating_items') return 4
-	if (status === 'user_review_items') return 4
-	if (status === 'vectorizing') return 5
-	if (status === 'completed') return 5
+	if (status === 'vectorizing') return 3
+	if (status === 'completed') return 3
 	return 0
 }
 
 /**
  * 获取细粒度进度（基于statusData中的实际处理数据）
+ * 新业务逻辑：3阶段处理流程 (PARSING -> CHUNKING -> VECTORIZING)
  */
 function getDetailedProgress(): number {
 	//优先使用processingProgress（后端计算的详细进度）
 	if (props.task.processingProgress !== undefined && props.task.processingProgress > 0) {
 		return props.task.processingProgress
 	}
-	
+
 	//如果没有processingProgress，根据状态计算默认进度
 	if (props.task.processingStatus) {
 		const status = props.task.processingStatus
 		const defaultProgress: Record<string, number> = {
 			'PARSING': 15,
-			'CHUNKING': 25,
-			'MATCHING': 50,
-			'USER_REVIEW_MATCHING': 60,
-			'CREATING_ITEMS': 75,
-			'USER_REVIEW_ITEMS': 85,
-			'VECTORIZING': 95,
+			'CHUNKING': 50,
+			'VECTORIZING': 85,
 			'COMPLETED': 100,
 		}
 		if (defaultProgress[status] !== undefined) {
@@ -454,12 +302,8 @@ function getDetailedProgress(): number {
 	const status = props.task.status
 	const defaultProgress: Record<string, number> = {
 		'parsing': 15,
-		'chunking': 25,
-		'matching': 50,
-		'user_review_matching': 60,
-		'creating_items': 75,
-		'user_review_items': 85,
-		'vectorizing': 95,
+		'chunking': 50,
+		'vectorizing': 85,
 		'completed': 100,
 	}
 	if (defaultProgress[status] !== undefined) {
@@ -504,25 +348,17 @@ function getFileTypeColor(fileName: string): string {
 function shouldShowProcessingSpeed(): boolean {
 	if (!props.task.processingSpeed || props.task.processingSpeed <= 0) return false
 	if (!props.task.speedUnit) return false//必须有单位
-	if (isBreakpointStatus()) return false
-	
-	//检查状态：只在非断点状态显示速率
+
 	const status = props.task.processingStatus || props.task.status
 	if (!status) return false
-	
-	//排除断点状态
-	if (status === 'USER_REVIEW_MATCHING' || status === 'user_review_matching' ||
-		status === 'USER_REVIEW_ITEMS' || status === 'user_review_items') {
-		return false
-	}
-	
+
 	//排除完成/失败状态
 	if (status === 'COMPLETED' || status === 'completed' ||
 		status === 'FAILED' || status === 'failed' ||
 		status === 'CANCELLED' || status === 'cancelled') {
 		return false
 	}
-	
+
 	return true
 }
 
@@ -560,25 +396,6 @@ function formatProcessingSpeed(speed: number, unit?: string): string {
 		//速率>=10，四舍五入到整数
 		return `${Math.round(speed)} ${unit}`
 	}
-}
-
-function isBreakpointStatus(): boolean {
-	if (!props.task) return false
-	const status = props.task.processingStatus || props.task.status
-	return status === 'USER_REVIEW_MATCHING' || status === 'user_review_matching' ||
-		status === 'USER_REVIEW_ITEMS' || status === 'user_review_items'
-}
-
-function isBreakpointAtStage(stage: number): boolean {
-	if (!isReviewPending.value) return false
-	const status = props.task.processingStatus || props.task.status
-	if (stage === 3 && (status === 'USER_REVIEW_MATCHING' || status === 'user_review_matching')) {
-		return true
-	}
-	if (stage === 4 && (status === 'USER_REVIEW_ITEMS' || status === 'user_review_items')) {
-		return true
-	}
-	return false
 }
 
 function formatFileSize(bytes: number): string {
@@ -664,8 +481,9 @@ function getUploadedChunks(): number {
 }
 
 function handleRetry() {
+	// 重试任务：重置状态为 pending，让队列统一调度，避免绕过并发控制
 	store.retryTask(props.task.id)
-	uploadService.uploadTask(props.task.id)
+	uploadService.processQueue()
 }
 
 async function handleRemove() {
@@ -697,97 +515,47 @@ async function performRemove() {
 		props.task.xhr.abort()
 	}
 	
-	//删除附件：最保险的方式是使用kid+fileName，因为文件名始终存在于任务对象中
-	//优先级：kid+fileName > docId > processId > attachId查询
+	// 删除附件：优先级 kid+fileName > docId > processId > attachId 查询
 	let deleteSuccess = false
+	const runDelete = async (fn: () => Promise<any>) => {
+		try {
+			const response = await fn()
+			if (response && (response.code === 200 || response.code === 0)) {
+				deleteSuccess = true
+				message.success('删除成功')
+			} else {
+				message.error(response?.msg || response?.message || '删除失败')
+			}
+		} catch (error: any) {
+			message.error(error?.response?.data?.msg || error?.message || '删除失败，请稍后重试')
+		}
+	}
 	if (props.task.kid && props.task.fileName) {
-		//最保险：使用kid+fileName删除
-		try {
-			const { delKnowledgeDetailByKidAndName } = await import('@/api/knowledge')
-			const response = await delKnowledgeDetailByKidAndName(props.task.kid, props.task.fileName)
-			if (response && (response.code === 200 || response.code === 0)) {
-				deleteSuccess = true
-				message.success('删除成功')
-			} else {
-				const errorMsg = response?.msg || response?.message || '删除失败'
-				message.error(errorMsg)
-			}
-		} catch (error: any) {
-			const errorMsg = error?.response?.data?.msg || error?.message || '删除失败，请稍后重试'
-			message.error(errorMsg)
-		}
-	} else if (props.task.docId && props.task.kid) {
-		//有docId，使用docId删除
-		try {
-			const { delKnowledgeDetail } = await import('@/api/knowledge')
-			const response = await delKnowledgeDetail({ kid: props.task.kid, docId: props.task.docId })
-			if (response && (response.code === 200 || response.code === 0)) {
-				deleteSuccess = true
-				message.success('删除成功')
-			} else {
-				const errorMsg = response?.msg || response?.message || '删除失败'
-				message.error(errorMsg)
-			}
-		} catch (error: any) {
-			const errorMsg = error?.response?.data?.msg || error?.message || '删除失败，请稍后重试'
-			message.error(errorMsg)
-		}
+		const { deleteDocumentByKidAndName } = await import('@/api/v2/document')
+		await runDelete(() => deleteDocumentByKidAndName(props.task.kid!, props.task.fileName!))
+	} else if (props.task.docId) {
+		const { deleteDocuments } = await import('@/api/v2/document')
+		await runDelete(() => deleteDocuments(props.task.docId!))
 	} else if (props.task.processId) {
-		//没有docId但有processId，使用processId删除
-		try {
-			const { delKnowledgeDetailByProcessId } = await import('@/api/knowledge')
-			const response = await delKnowledgeDetailByProcessId(props.task.processId)
-			if (response && (response.code === 200 || response.code === 0)) {
-				deleteSuccess = true
-				message.success('删除成功')
-			} else {
-				const errorMsg = response?.msg || response?.message || '删除失败'
-				message.error(errorMsg)
-			}
-		} catch (error: any) {
-			const errorMsg = error?.response?.data?.msg || error?.message || '删除失败，请稍后重试'
-			message.error(errorMsg)
-		}
+		const { deleteDocumentByProcessId } = await import('@/api/v2/document')
+		await runDelete(() => deleteDocumentByProcessId(props.task.processId!))
 	} else if (props.task.attachId) {
-		//没有docId和processId，但有attachId，通过attachId查询docId或processId
 		try {
-			const { getKnowledgeAttachInfo } = await import('@/api/knowledge')
-			const attachInfo = await getKnowledgeAttachInfo(props.task.attachId)
-			if (attachInfo && (attachInfo.code === 200 || attachInfo.code === 0) && attachInfo.data) {
-				const docId = attachInfo.data.docId
-				const processId = attachInfo.data.processId
-				if (docId && props.task.kid) {
-					//查询到docId，使用docId删除
-					const { delKnowledgeDetail } = await import('@/api/knowledge')
-					const response = await delKnowledgeDetail({ kid: props.task.kid, docId })
-					if (response && (response.code === 200 || response.code === 0)) {
-						deleteSuccess = true
-						message.success('删除成功')
-					} else {
-						const errorMsg = response?.msg || response?.message || '删除失败'
-						message.error(errorMsg)
-					}
-				} else if (processId) {
-					//查询到processId，使用processId删除
-					const { delKnowledgeDetailByProcessId } = await import('@/api/knowledge')
-					const response = await delKnowledgeDetailByProcessId(processId)
-					if (response && (response.code === 200 || response.code === 0)) {
-						deleteSuccess = true
-						message.success('删除成功')
-					} else {
-						const errorMsg = response?.msg || response?.message || '删除失败'
-						message.error(errorMsg)
-					}
-				} else {
-					message.warning('无法找到关联的后端记录，仅从前端移除任务')
-				}
+			const { getDocument, deleteDocuments, deleteDocumentByProcessId } = await import('@/api/v2/document')
+			const info: any = await getDocument(props.task.attachId)
+			const data = info?.data || info
+			const docId = data?.docId
+			const processId = data?.processId
+			if (docId) {
+				await runDelete(() => deleteDocuments(docId))
+			} else if (processId) {
+				await runDelete(() => deleteDocumentByProcessId(processId))
 			} else {
-				message.warning('查询附件信息失败，仅从前端移除任务')
+				message.warning('无法找到关联的后端记录，仅从前端移除任务')
 			}
-		} catch (error: any) {
+		} catch {
 			message.warning('查询附件信息失败，仅从前端移除任务')
 		}
-	} else {
 	}
 	
 	//如果删除成功或没有可删除的记录，从前端移除任务
@@ -797,13 +565,8 @@ async function performRemove() {
 	}
 }
 
-function handleContinueReview() {
-	emit('continue-review', props.task)
-}
-
 const emit = defineEmits<{
 	viewDetail: [task: UploadTask]
-	continueReview: [task: UploadTask]
 }>()
 
 function handleViewDetail() {
@@ -964,32 +727,6 @@ function handleViewDetail() {
 .task-success-message {
 	margin-top: 8px;
 	font-size: 12px;
-}
-
-.task-review-pending {
-	margin-top: 8px;
-	padding: 12px;
-	background: #FFF7E6;
-	border: 1px solid #FFE7BA;
-	border-radius: 4px;
-}
-
-.review-status-header {
-	margin-bottom: 12px;
-}
-
-.stage-item.breakpoint {
-	position: relative;
-	padding: 4px 8px;
-	background: #FFF7E6;
-	border: 1px dashed #FA8C16;
-	border-radius: 4px;
-	font-weight: 500;
-}
-
-.stage-icon.breakpoint-icon {
-	color: #FA8C16;
-	animation: blink 1.5s ease-in-out infinite;
 }
 
 .knowledge-base-tag {

@@ -135,22 +135,22 @@ export function getKnowledgeDetail(kid: string) {
 
 export function delKnowledgeDetail(params: KnowledgeDetailDelReq) {
 	return request({
-		url: "/knowledge/attach/remove/" + params.docId,
-		method: "post",
+		url: "/knowledge/document/attach/remove/" + params.docId,
+		method: "delete",
 	});
 }
 
 export function delKnowledgeDetailByProcessId(processId: string) {
 	return request({
-		url: "/knowledge/attach/remove-by-process/" + processId,
-		method: "post",
+		url: "/knowledge/document/attach/remove-by-process/" + processId,
+		method: "delete",
 	});
 }
 
 export function delKnowledgeDetailByKidAndName(kid: string, docName: string) {
 	return request({
-		url: "/knowledge/attach/remove-by-name",
-		method: "post",
+		url: "/knowledge/document/attach/remove-by-name",
+		method: "delete",
 		params: { kid, docName },
 	});
 }

@@ -73,6 +73,7 @@ import FragmentInfoPanel from "@/views/knowledge/review/FragmentInfoPanel.vue";
 import ItemDetailPanel from "@/views/knowledge/review/ItemDetailPanel.vue";
 import ItemList from "@/views/knowledge/review/ItemList.vue";
 import { getKnowledgeItemDetail, getKnowledgeItemList, deleteKnowledgeItem } from "@/api/knowledgeItem";
+import { extractKeywords, highlightTextHtml, extractSnippetAroundKeyword } from "@/utils/searchHighlight";
 
 const router = useRouter();
 const route = useRoute();
@@ -871,26 +872,23 @@ function formatFragmentTimeAgo(date: string | Date | undefined): string {
 	}
 }
 
-//格式化内容预览
-function formatFragmentContentPreview(content: string | undefined, maxLength: number = 150): string {
+//格式化内容预览：有搜索词时以关键词为中心截取（三个点机制），否则截取前 N 字
+function formatFragmentContentPreview(content: string | undefined, maxLength: number = 150, searchKeyword?: string): string {
 	if (!content) return '-';
 	const trimmed = content.trim().replace(/\s+/g, ' ');
 	if (trimmed.length <= maxLength) return trimmed;
-	const lastSpace = trimmed.lastIndexOf(' ', maxLength);
-	if (lastSpace > maxLength * 0.7) {
-		return trimmed.substring(0, lastSpace) + '...';
-	}
-	return trimmed.substring(0, maxLength) + '...';
+	const keywords = searchKeyword ? extractKeywords(searchKeyword) : [];
+	return keywords.length
+		? extractSnippetAroundKeyword(trimmed, keywords, maxLength)
+		: trimmed.substring(0, maxLength) + '…';
 }
 
-//高亮关键词
+//高亮关键词（供 v-html 使用）
 function highlightFragmentText(text: string, keyword: string): string {
 	if (!keyword || !text) return text;
-	const keywords = keyword.trim().split(/\s+/).filter(k => k.length > 0);
-	if (keywords.length === 0) return text;
-	const escapedKeywords = keywords.map(k => k.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|');
-	const regex = new RegExp(`(${escapedKeywords})`, 'gi');
-	return text.replace(regex, '<mark>$1</mark>');
+	const keywords = extractKeywords(keyword);
+	if (!keywords.length) return text;
+	return highlightTextHtml(text, keywords);
 }
 
 //查看片段详情
@@ -1220,11 +1218,12 @@ const fragmentColumns = computed(() => {
 			minWidth: 400,
 			render: (row: any) => {
 				const content = row.content || '';
-				const preview = formatFragmentContentPreview(content, 200);
+				const kw = fragmentSearchKeyword.value.trim();
+				const preview = formatFragmentContentPreview(content, 200, kw);
 				const fullContent = content;
-				const contentElement = fragmentSearchKeyword.value.trim() 
+				const contentElement = kw
 					? h('div', {
-						innerHTML: highlightFragmentText(preview, fragmentSearchKeyword.value.trim()),
+						innerHTML: highlightFragmentText(preview, kw),
 						style: 'line-height: 1.7; color: #323130; font-size: 13px; word-break: break-word; cursor: pointer;',
 						onClick: () => handleViewFragmentDetail(row),
 					})
@@ -2929,8 +2928,8 @@ onUnmounted(() => {
 					</div>
 				</div>
 				
-				<!-- 批量操作工具栏 -->
-				<div v-if="showBatchToolbar" class="batch-toolbar">
+				<!-- 批量操作工具栏（仅列表视图，卡片视图无勾选无法修改选择） -->
+				<div v-if="showBatchToolbar && viewMode === 'list'" class="batch-toolbar">
 					<n-space justify="space-between" align="center">
 						<span>已选择 {{ selectedAttachIds.length }} 项</span>
 						<n-space :size="8">

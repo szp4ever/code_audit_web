@@ -136,6 +136,7 @@ import FragmentInfoPanel from './FragmentInfoPanel.vue'
 import { formatDistanceToNow } from 'date-fns'
 import { zhCN } from 'date-fns/locale'
 import to from 'await-to-js'
+import { extractKeywords, highlightTextForRender, extractSnippetAroundKeyword } from '@/utils/searchHighlight'
 
 interface Props {
 	itemUuid: string
@@ -335,16 +336,24 @@ const columns = computed(() => [
 		minWidth: 400,
 		render: (row: any) => {
 			const content = row.content || ''
-			const preview = content.length > 200 ? content.substring(0, 200) + '...' : content
-			const fullContent = content
+			const keywords = extractKeywords(searchKeyword.value)
+			const displayText = content.length > 200 && keywords.length
+				? extractSnippetAroundKeyword(content, keywords, 200)
+				: (content.length > 200 ? content.substring(0, 200) + '...' : content)
+			const contentNodes = keywords.length
+				? highlightTextForRender(displayText, keywords, h)
+				: [displayText]
 			
 			const contentElement = h('span', {
 				style: 'line-height: 1.7; color: #323130; font-size: 13px; word-break: break-word; cursor: pointer;',
 				class: 'fragment-content-preview',
 				onClick: () => handleViewFragment(row),
-			}, preview)
+			}, contentNodes)
 			
 			if (content.length > 200) {
+				const tooltipContent = keywords.length
+					? highlightTextForRender(content, keywords, h)
+					: [content]
 				return h(NTooltip, {
 					trigger: 'hover',
 					placement: 'top',
@@ -353,7 +362,7 @@ const columns = computed(() => [
 					trigger: () => contentElement,
 					default: () => h('div', {
 						style: 'max-width: 600px; white-space: pre-wrap; line-height: 1.6; font-size: 13px; word-break: break-word;',
-					}, fullContent),
+					}, tooltipContent),
 				})
 			}
 			return contentElement

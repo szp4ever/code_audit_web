@@ -4,7 +4,7 @@ import { ref, computed, watch, onMounted } from "vue";
 import { gptConfigStore, homeStore, useChatStore } from '@/store'
 import { mlog, chatSetting } from "@/api";
 import { t } from "@/locales";
-import { getKnowledgeByRole } from '@/api/knowledge'
+import { listKnowledgeBasesByRole } from '@/api/v2/knowledgeBase'
 import { getToken } from "@/store/modules/auth/helper";
 import to from "await-to-js";
 import { modelList } from '@/api/model'
@@ -42,16 +42,15 @@ const fetchData = async () => {
 const fetchDataGetKnowledge = async () => {
 	if (getToken()) {
 		try {
-			// 发起一个请求
-			const [err, result] = await to(getKnowledgeByRole({ pageNum: 1, pageSize: 100 }));
+			const [err, result] = await to(listKnowledgeBasesByRole({}, { pageNum: 1, pageSize: 100 }))
 			if (err) {
-				ms.error(err.message)
+				message.error(err.message)
 			} else if (result) {
-				const rows = (result as any).rows || [];
+				const rows = (result as any).rows || []
 				console.log("result===", rows)
 				options.value = rows.map((item: any) => ({
-					label: item.kname, // 假设后台返回的数据有 'name' 字段
-					value: item.id     // 假设每个数据项都有一个唯一的 'id' 字段
+					label: item.kname,
+					value: item.kid || item.id
 				}));
 
 				// 请求成功

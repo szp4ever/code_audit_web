@@ -10,19 +10,44 @@
 		@update:show="handleModalShowChange"
 	>
 		<div class="cwe-selector">
-			<!-- 顶部：搜索栏和已选项 -->
+			<!-- 顶部：搜索栏、排序和已选项 -->
 			<div class="selector-header">
-				<n-input
-					v-model:value="searchKeyword"
-					placeholder="搜索CWE编号、中文名称或英文名称..."
-					clearable
-					size="large"
-					@update:value="handleSearch"
-				>
-					<template #prefix>
-						<SvgIcon icon="ri:search-line" />
-					</template>
-				</n-input>
+				<div class="search-and-sort">
+					<n-input
+						v-model:value="searchKeyword"
+						placeholder="搜索CWE编号、中文名称或英文名称..."
+						clearable
+						size="large"
+						@update:value="handleSearch"
+						class="search-input"
+					>
+						<template #prefix>
+							<SvgIcon icon="ri:search-line" />
+						</template>
+					</n-input>
+					<div class="sort-controls">
+						<n-select
+							v-model:value="sortField"
+							:options="sortOptions"
+							size="small"
+							placeholder="排序方式"
+							class="sort-field-select"
+							@update:value="handleSortFieldChange"
+						/>
+						<n-button
+							v-if="sortField !== 'relevance'"
+							size="small"
+							quaternary
+							class="sort-order-btn"
+							@click="toggleSortOrder"
+						>
+							<template #icon>
+								<SvgIcon :icon="sortOrder === 'asc' ? 'ri:sort-asc' : 'ri:sort-desc'" />
+							</template>
+							{{ sortOrder === 'asc' ? '升序' : '降序' }}
+						</n-button>
+					</div>
+				</div>
 				<div v-if="selectedCweIds.length > 0" class="selected-tags">
 					<div class="selected-count">
 						<span class="count-text">已选择 {{ selectedCweIds.length }} 项</span>
@@ -116,9 +141,15 @@
 
 			<!-- 主要内容区域 -->
 			<div class="selector-content">
-				<!-- 按分组查看 -->
-				<div v-if="groupMode === 'cluster'">
-					<n-collapse v-model:expanded-names="expandedClusters" accordion>
+				<n-spin :show="loading" description="加载 CWE 数据中...">
+					<!-- 按分组查看 -->
+					<div v-if="groupMode === 'cluster'">
+						<n-empty
+							v-if="!loading && filteredClusters.length === 0"
+							description="暂无分组数据，请检查 CWE 聚类是否已导入；或切换到「平铺列表」查看"
+							:style="{ padding: '48px 0' }"
+						/>
+						<n-collapse v-else v-model:expanded-names="expandedClusters" accordion>
 						<n-collapse-item
 							v-for="cluster in filteredClusters"
 							:key="`${cluster.clusterId}-${cluster.clusterMethod}`"
@@ -216,12 +247,17 @@
 								</n-checkbox-group>
 							</div>
 						</n-collapse-item>
-					</n-collapse>
-				</div>
+						</n-collapse>
+					</div>
 
-				<!-- 按抽象层级分组 -->
-				<div v-else-if="groupMode === 'abstraction'">
-					<n-collapse v-model:expanded-names="expandedAbstractions" accordion>
+					<!-- 按抽象层级分组 -->
+					<div v-else-if="groupMode === 'abstraction'">
+						<n-empty
+							v-if="!loading && Object.keys(groupedByAbstraction).length === 0"
+							description="暂无数据，请检查 CWE 参考表是否已导入"
+							:style="{ padding: '48px 0' }"
+						/>
+						<n-collapse v-else v-model:expanded-names="expandedAbstractions" accordion>
 						<n-collapse-item
 							v-for="(cwes, abstraction) in groupedByAbstraction"
 							:key="abstraction"
@@ -324,7 +360,12 @@
 
 				<!-- 平铺列表（搜索结果） -->
 				<div v-else>
-					<div class="flat-cwe-list">
+					<n-empty
+						v-if="!loading && filteredCweList.length === 0"
+						description="暂无 CWE 数据，请检查 cwe_reference 表是否已导入；或调整上方状态筛选"
+						:style="{ padding: '48px 0' }"
+					/>
+					<div v-else class="flat-cwe-list">
 						<n-checkbox-group
 							:value="selectedCweIds"
 							@update:value="handleCweSelectionChange"
@@ -414,6 +455,7 @@
 						</n-checkbox-group>
 					</div>
 				</div>
+				</n-spin>
 			</div>
 		</div>
 
@@ -497,6 +539,7 @@
 		NPopover,
 		NEmpty,
 		NSpin,
+	NSelect,
 	} from "naive-ui";
 	import { SvgIcon } from "@/components/common";
 	import {
@@ -562,8 +605,39 @@
 	const selectedDetailSearchKeyword = ref("");
 	const compactThreshold = 5;
 	const activeDetailPopover = ref<string | null>(null);
+
+	// ─── 动态排序选项 ───
+	/** 基础排序选项（无搜索时显示） */
+	const baseSortOptions = [
+		{ label: 'CWE编号', value: 'cweId' },
+		{ label: '中文名称', value: 'nameZh' },
+		{ label: '英文名称', value: 'nameEn' },
+	];
+
+	/** 动态排序选项：有搜索关键词时显示「相关程度」 */
+	const sortOptions = computed(() => {
+		if (searchKeyword.value.trim()) {
+			return [{ label: '相关程度', value: 'relevance' }, ...baseSortOptions];
+		}
+		return baseSortOptions;
+	});
 	const selectedStatuses = ref<string[]>(["Stable", "Draft"]);
 	const statusFilterLoading = ref(false);
+
+	// ─── 排序相关状态 ───
+	/** 当前排序字段 */
+	const sortField = ref<'cweId' | 'nameZh' | 'nameEn' | 'relevance'>('cweId');
+	/** 当前排序方向 */
+	const sortOrder = ref<'asc' | 'desc'>('asc');
+	/** 清空搜索时恢复的排序状态 */
+	const previousSortState = ref<{ sortField: 'cweId' | 'nameZh' | 'nameEn' | 'relevance'; sortOrder: 'asc' | 'desc' }>({
+		sortField: 'cweId',
+		sortOrder: 'asc'
+	});
+	/** 上一次搜索状态（用于判断进入/退出搜索） */
+	const prevSearchHadKeyword = ref(false);
+	/** 搜索防抖计时器 */
+	let searchDebounceTimer: ReturnType<typeof setTimeout> | null = null;
 
 	onMounted(async () => {
 		await loadData();
@@ -619,6 +693,93 @@
 		}
 	}
 
+	// ─── 相关性评分算法 ───
+	/**
+	 * 计算CWE与搜索关键词的相关程度
+	 * 权重：完全匹配ID(100) > 开头匹配ID(80) > 中文名(50) > 英文名(30) > 描述(10/5)
+	 */
+	function calculateRelevance(cwe: CweReference, keyword: string): number {
+		if (!keyword) return 0;
+		const kw = keyword.toLowerCase().trim();
+		let score = 0;
+
+		// CWE编号匹配（权重最高）
+		if (cwe.cweId?.toLowerCase() === kw) {
+			score += 100;
+		} else if (cwe.cweId?.toLowerCase().includes(kw)) {
+			score += 80;
+			// 开头匹配额外加分
+			if (cwe.cweId.toLowerCase().startsWith(kw)) {
+				score += 10;
+			}
+		}
+
+		// 中文名称匹配
+		if (cwe.nameZh?.toLowerCase().includes(kw)) {
+			score += 50;
+			if (cwe.nameZh.toLowerCase().startsWith(kw)) {
+				score += 15;
+			}
+			if (cwe.nameZh.toLowerCase() === kw) {
+				score += 20;
+			}
+		}
+
+		// 英文名称匹配
+		if (cwe.nameEn?.toLowerCase().includes(kw)) {
+			score += 30;
+			if (cwe.nameEn.toLowerCase().startsWith(kw)) {
+				score += 10;
+			}
+		}
+
+		// 中文描述匹配
+		if (cwe.descriptionZh?.toLowerCase().includes(kw)) {
+			score += 10;
+		}
+
+		// 英文描述匹配
+		if (cwe.descriptionEn?.toLowerCase().includes(kw)) {
+			score += 5;
+		}
+
+		return score;
+	}
+
+	/**
+	 * 提取多关键词（支持空格、逗号分隔）
+	 */
+	function extractKeywords(query: string): string[] {
+		const stopWords = ['的', '了', '在', '是', '我', '有', '和', '就', '不', '人', '都', '一', '一个', '上', '也', '很', '到', '说', '要', '去', '你', '会', '着', '没有', '看', '好', '自己', '这'];
+		const words = query.trim()
+			.split(/[\s,，。、；;：:！!？?]+/)
+			.map(w => w.trim())
+			.filter(w => w.length > 0 && !stopWords.includes(w));
+		if (words.length === 0) {
+			return [query.trim()];
+		}
+		// 整句优先 + 分词
+		const result: string[] = [];
+		if (query.trim().length > 2) {
+			result.push(query.trim());
+		}
+		result.push(...words);
+		return result;
+	}
+
+	/**
+	 * 计算多关键词综合相关度
+	 */
+	function calculateMultiKeywordRelevance(cwe: CweReference, keywords: string[]): number {
+		if (!keywords || keywords.length === 0) return 0;
+		let totalScore = 0;
+		for (const keyword of keywords) {
+			totalScore += calculateRelevance(cwe, keyword);
+		}
+		return totalScore;
+	}
+
+	// ─── 过滤并排序后的CWE列表 ───
 	const filteredCweList = computed(() => {
 		if (selectedStatuses.value.length === 0) {
 			return [];
@@ -637,7 +798,43 @@
 					cwe.descriptionEn?.toLowerCase().includes(keyword);
 			});
 		}
-		return result;
+
+		// ─── 应用排序 ───
+		const sortedResult = [...result].sort((a, b) => {
+			let comparison = 0;
+			switch (sortField.value) {
+				case 'cweId':
+					// 提取数字部分比较
+					const numA = parseInt(a.cweId?.replace(/\D/g, '') || '0', 10);
+					const numB = parseInt(b.cweId?.replace(/\D/g, '') || '0', 10);
+					comparison = numA - numB;
+					break;
+				case 'nameZh':
+					comparison = (a.nameZh || '').localeCompare(b.nameZh || '', 'zh-CN');
+					break;
+				case 'nameEn':
+					comparison = (a.nameEn || '').localeCompare(b.nameEn || '', 'en');
+					break;
+				case 'relevance':
+					// 按相关度排序（仅搜索时）
+					if (searchKeyword.value.trim()) {
+						const keywords = extractKeywords(searchKeyword.value);
+						const scoreA = calculateMultiKeywordRelevance(a, keywords);
+						const scoreB = calculateMultiKeywordRelevance(b, keywords);
+						comparison = scoreB - scoreA; // 降序排列
+						// 相关度相同时按CWE编号排序
+						if (comparison === 0) {
+							const numA2 = parseInt(a.cweId?.replace(/\D/g, '') || '0', 10);
+							const numB2 = parseInt(b.cweId?.replace(/\D/g, '') || '0', 10);
+							comparison = numA2 - numB2;
+						}
+					}
+					break;
+			}
+			return sortOrder.value === 'asc' ? comparison : -comparison;
+		});
+
+		return sortedResult;
 	});
 
 	const filteredClusters = computed(() => {
@@ -663,6 +860,7 @@
 		});
 	});
 
+	// ─── 按抽象层级分组（保持组内排序） ───
 	const groupedByAbstraction = computed(() => {
 		const groups: Record<string, CweReference[]> = {};
 		filteredCweList.value.forEach(cwe => {
@@ -672,6 +870,7 @@
 			}
 			groups[key].push(cwe);
 		});
+		// 注意：组内顺序已由filteredCweList保证，无需额外排序
 		return groups;
 	});
 
@@ -683,15 +882,55 @@
 		return clusterMappings.value.get(key) || [];
 	}
 
+	/**
+	 * 获取分组内的CWE（支持过滤和排序）
+	 */
 	function getFilteredClusterCwes(cluster: CweCluster): CweClusterMapping[] {
 		const clusterCwes = getClusterCwes(cluster);
 		if (selectedStatuses.value.length === 0) {
 			return [];
 		}
-		return clusterCwes.filter(cwe => {
+		// 先过滤
+		const filtered = clusterCwes.filter(cwe => {
 			const cweData = allCweList.value.find(c => c.cweId === cwe.cweId);
 			if (!cweData || !cweData.status) return false;
 			return selectedStatuses.value.includes(cweData.status);
+		});
+
+		// 再排序：根据完整CWE数据排序
+		return [...filtered].sort((a, b) => {
+			const cweA = allCweList.value.find(c => c.cweId === a.cweId);
+			const cweB = allCweList.value.find(c => c.cweId === b.cweId);
+			if (!cweA || !cweB) return 0;
+
+			let comparison = 0;
+			switch (sortField.value) {
+				case 'cweId':
+					const numA = parseInt(cweA.cweId?.replace(/\D/g, '') || '0', 10);
+					const numB = parseInt(cweB.cweId?.replace(/\D/g, '') || '0', 10);
+					comparison = numA - numB;
+					break;
+				case 'nameZh':
+					comparison = (cweA.nameZh || '').localeCompare(cweB.nameZh || '', 'zh-CN');
+					break;
+				case 'nameEn':
+					comparison = (cweA.nameEn || '').localeCompare(cweB.nameEn || '', 'en');
+					break;
+				case 'relevance':
+					if (searchKeyword.value.trim()) {
+						const keywords = extractKeywords(searchKeyword.value);
+						const scoreA = calculateMultiKeywordRelevance(cweA, keywords);
+						const scoreB = calculateMultiKeywordRelevance(cweB, keywords);
+						comparison = scoreB - scoreA;
+						if (comparison === 0) {
+							const numA2 = parseInt(cweA.cweId?.replace(/\D/g, '') || '0', 10);
+							const numB2 = parseInt(cweB.cweId?.replace(/\D/g, '') || '0', 10);
+							comparison = numA2 - numB2;
+						}
+					}
+					break;
+			}
+			return sortOrder.value === 'asc' ? comparison : -comparison;
 		});
 	}
 
@@ -909,8 +1148,68 @@
 		});
 	}
 
+	/**
+	 * 搜索输入处理（300ms防抖 + 排序智能切换）
+	 */
 	function handleSearch() {
-		// 搜索时保持当前视图，不自动切换
+		// 清除之前的定时器
+		if (searchDebounceTimer) {
+			clearTimeout(searchDebounceTimer);
+		}
+
+		searchDebounceTimer = setTimeout(() => {
+			const wasSearching = prevSearchHadKeyword.value;
+			const isSearching = !!searchKeyword.value.trim();
+
+			if (!wasSearching && isSearching) {
+				// 进入搜索：保存当前排序，切换到相关程度
+				previousSortState.value = {
+					sortField: sortField.value,
+					sortOrder: sortOrder.value
+				};
+				sortField.value = 'relevance';
+				sortOrder.value = 'desc';
+			} else if (wasSearching && !isSearching) {
+				// 退出搜索：恢复之前的排序
+				const prev = previousSortState.value;
+				sortField.value = prev.sortField === 'relevance' ? 'cweId' : prev.sortField;
+				sortOrder.value = prev.sortOrder;
+			} else if (wasSearching && isSearching && sortField.value !== 'relevance') {
+				// 持续搜索但手动切换了其他排序：强制切回相关程度
+				sortField.value = 'relevance';
+				sortOrder.value = 'desc';
+			}
+
+			prevSearchHadKeyword.value = isSearching;
+
+			// 展开所有分组以便用户查看搜索结果
+			if (isSearching && groupMode.value === 'cluster') {
+				expandedClusters.value = filteredClusters.value.map(c => c.clusterId?.toString() || '');
+			}
+			if (isSearching && groupMode.value === 'abstraction') {
+				expandedAbstractions.value = Object.keys(groupedByAbstraction.value);
+			}
+		}, 300);
+	}
+
+	/**
+	 * 切换排序方向
+	 */
+	function toggleSortOrder() {
+		sortOrder.value = sortOrder.value === 'asc' ? 'desc' : 'asc';
+	}
+
+	/**
+	 * 排序字段变化处理
+	 */
+	function handleSortFieldChange(value: 'cweId' | 'nameZh' | 'nameEn' | 'relevance') {
+		// 切换到相关程度时自动设为降序
+		if (value === 'relevance') {
+			sortOrder.value = 'desc';
+		} else if (sortField.value === 'relevance' && value !== 'relevance') {
+			// 从相关程度切换到其他时，默认设为升序
+			sortOrder.value = 'asc';
+		}
 	}
 
 	function removeSelection(cweId: string) {
@@ -943,7 +1242,7 @@
 		showModal.value = false;
 	}
 
-	function handleModalShowChange(show: boolean) {
+	async function handleModalShowChange(show: boolean) {
 		if (!show) {
 			selectedCweIds.value = [...(props.selectedValues || [])];
 			searchKeyword.value = "";
@@ -957,6 +1256,8 @@
 			showSelectedDetailModal.value = false;
 			selectedDetailSearchKeyword.value = "";
 			activeDetailPopover.value = null;
+			// 弹窗打开时重新加载，确保数据可用（解决懒挂载或首次打开时数据未就绪）
+			await loadData();
 		}
 	}
 </script>
@@ -970,6 +1271,31 @@
 
 	.selector-header {
 		margin-bottom: 16px;
+	}
+
+	// ─── 搜索和排序区域 ───
+	.search-and-sort {
+		display: flex;
+		align-items: center;
+		gap: 12px;
+	}
+
+	.search-input {
+		flex: 1;
+	}
+
+	.sort-controls {
+		display: flex;
+		align-items: center;
+		gap: 8px;
+	}
+
+	.sort-field-select {
+		width: 130px;
+	}
+
+	.sort-order-btn {
+		padding: 0 8px;
 	}
 
 	.selected-tags {

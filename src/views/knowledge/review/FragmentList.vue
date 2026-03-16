@@ -194,6 +194,7 @@ import type { KnowledgeItemListQuery } from '@/api/knowledgeItem'
 import ItemSelectorModal from './ItemSelectorModal.vue'
 import FragmentDetailModal from './FragmentDetailModal.vue'
 import FragmentPreviewModal from './FragmentPreviewModal.vue'
+import { extractKeywords, highlightTextForRender, extractSnippetAroundKeyword } from '@/utils/searchHighlight'
 
 interface Props {
 	fragments: any[]
@@ -617,7 +618,13 @@ const columns = computed(() => {
 			},
 			render: (row: any) => {
 				const content = row.content || '加载中...'
-				const preview = content.length > 200 ? content.substring(0, 200) + '...' : content
+				const keywords = extractKeywords(searchKeyword.value)
+				const displayText = content.length > 200 && keywords.length
+					? extractSnippetAroundKeyword(content, keywords, 200)
+					: (content.length > 200 ? content.substring(0, 200) + '...' : content)
+				const contentNodes = keywords.length
+					? highlightTextForRender(displayText, keywords, h)
+					: [displayText]
 				return h('div', {
 					style: 'display: flex; align-items: center; gap: 8px; width: 100%;',
 				}, [
@@ -627,7 +634,7 @@ const columns = computed(() => {
 							selectedFragmentForPreview.value = row
 							showFragmentPreview.value = true
 						}
-					}, preview),
+					}, contentNodes),
 					h(NButton, {
 						text: true,
 						size: 'small',

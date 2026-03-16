@@ -52,14 +52,14 @@ import { useUploadStore } from '@/store/modules/upload'
 
 const store = useUploadStore()
 
-const statusFilter = ref<string>(store.filters.status)
-const timeFilter = ref<string>(store.filters.time)
-const searchKeyword = ref<string>(store.filters.searchKeyword)
+const statusFilter = ref<string>(store.filters?.status ?? 'all')
+const timeFilter = ref<string>(store.filters?.time ?? 'all')
+const searchKeyword = ref<string>(store.filters?.searchKeyword ?? '')
 
 const statusOptions = [
 	{ label: '全部状态', value: 'all' },
 	{ label: '进行中', value: 'active' },
-	{ label: '待审阅', value: 'pending' },
+	{ label: '等待', value: 'pending' },
 	{ label: '已完成', value: 'completed' },
 	{ label: '失败', value: 'failed' },
 ]
@@ -100,6 +100,7 @@ const handleClearFilters = () => {
 }
 
 watch(() => store.filters, (newFilters) => {
+	if (!newFilters) return
 	if (newFilters.status !== statusFilter.value) {
 		statusFilter.value = newFilters.status
 	}

@@ -26,9 +26,9 @@ import {
 } from '@vicons/ionicons5'
 import { getToken } from '@/store/modules/auth/helper'
 import { useRoute, useRouter } from 'vue-router'
+import { extractKeywords, highlightTextForRender } from '@/utils/searchHighlight'
 
-// 引入 RuoYi 封装的 request 工具，用于自动创建和查询知识库
-import request from '@/utils/request'
+import { listKnowledgeBasesByRole, createKnowledgeBase } from '@/api/v2/knowledgeBase'
 
 const route = useRoute()
 const router = useRouter()
@@ -47,34 +47,23 @@ const kidRecommendation = ref('')
 
 const initKnowledgeBases = async () => {
 	try {
-		const res = await request({
-			url: '/knowledge/list',
-			method: 'GET',
-			params: { pageNum: 1, pageSize: 1000 }
-		})
-
-		const kbList = res.rows || res.data || []
+		const res: any = await listKnowledgeBasesByRole({}, { pageNum: 1, pageSize: 1000 })
+		const kbList = res?.rows || res?.data || []
 
 		// 查找或创建函数
-		const ensureKB = async (name, desc) => {
-			let target = kbList.find(kb => kb.kname === name);
+		const ensureKB = async (name: string, desc: string) => {
+			let target = kbList.find((kb: any) => kb.kname === name)
 			if (!target) {
-				// 严格按照后端 KnowledgeInfoBo 的必填字段传参
-				const saveRes = await request({
-					url: '/knowledge/save',
-					method: 'POST',
-					data: {
-						kname: name,             // 对应数据库 kname
-						share: 0,                // 必填：0-私有，1-公开
-						description: desc,
-						vectorModelName: 'text2vec', // 必填：需确保后端配置了此模型
-						retrieveLimit: 5,        // 必填：检索条数
-						textBlockSize: 500       // 必填：分块大小
-					}
+				await createKnowledgeBase({
+					kname: name,
+					share: 0,
+					description: desc,
+					vectorModelName: 'text2vec',
+					retrieveLimit: 5,
+					textBlockSize: 500
 				})
-				// 创建后重新获取一下 ID
-				const refreshRes = await request({ url: '/knowledge/list', method: 'GET' })
-				target = (refreshRes.rows || refreshRes.data || []).find(kb => kb.kname === name)
+				const refreshRes: any = await listKnowledgeBasesByRole({}, { pageNum: 1, pageSize: 1000 })
+				target = (refreshRes?.rows || refreshRes?.data || []).find((kb: any) => kb.kname === name)
 			}
 			return target ? (target.kid || target.id) : ''
 		}
@@ -83,9 +72,10 @@ const initKnowledgeBases = async () => {
 		kidRecommendation.value = await ensureKB(KB_NAME_RECOMMENDATION, '自动归档的漏洞推荐修复方案')
 
 		console.log('✅ 知识库管家初始化完毕')
-	} catch (error) {
+	} catch (error: any) {
 		// 如果报 Weaviate 连接失败，说明向量数据库没开
-		if (error.message && error.message.includes('Weaviate')) {
+		const msg = error?.message || error?.msg || ''
+		if (msg && msg.includes('Weaviate')) {
 			ms.error('后端向量数据库（Weaviate）未启动，无法自动创建知识库。请联系管理员启动服务。')
 		} else {
 			console.error('初始化失败', error)
@@ -434,8 +424,20 @@ const startProgressTimer = () => {
 		})
 	}, progressInterval.value)
 }
+const stopProgressTimer = () => {
+	if (progressTimer.value) {
+		clearInterval(progressTimer.value)
+		progressTimer.value = null
+	}
+}
 const startPolling = () => { if (pollingTimer.value) clearInterval(pollingTimer.value); pollingTimer.value = setInterval(() => loadTasks(), pollingInterval.value) }
-const stopPolling = () => { if (pollingTimer.value) clearInterval(pollingTimer.value); stopProgressTimer() }
+const stopPolling = () => {
+	if (pollingTimer.value) {
+		clearInterval(pollingTimer.value)
+		pollingTimer.value = null
+	}
+	stopProgressTimer()
+}
 const handleCancelTask = async (t: Task) => { if(t.id) await cancelTask(t.id); loadTasks() }
 const handleRetryTask = async (t: Task) => { if(t.id) await retryTask(t.id); loadTasks() }
 
@@ -459,7 +461,11 @@ const fileMetricsColumns = [
 ];
 
 const columns = [
-	{ title: '任务标题', key: 'title', width: 150, ellipsis: { tooltip: true }, render: (row: Task) => h('span', { style: { cursor: 'pointer', color: '#18a058', textDecoration: 'underline' }, onClick: () => openVulnerabilityModal(row) }, row.title) },
+	{ title: '任务标题', key: 'title', width: 150, ellipsis: { tooltip: true }, render: (row: Task) => {
+	const keywords = extractKeywords(searchKeyword.value)
+	const content = keywords.length ? highlightTextForRender(row.title || '', keywords, h) : [row.title || '']
+	return h('span', { style: { cursor: 'pointer', color: '#18a058', textDecoration: 'underline' }, onClick: () => openVulnerabilityModal(row) }, content)
+} },
 	{ title: '任务要求', key: 'description', width: 100, ellipsis: { tooltip: true }, render: (row: Task) => row.description || '-' },
 	{ title: '任务类型', key: 'taskType', width: 150, render: (row: Task) => h(NTag, { type: taskTypeTagType(row.taskType) as any, size: 'small' }, { default: () => taskTypeLabel(row.taskType) }) },
 	{ title: '优先级', key: 'priority', width: 100, render: (row: Task) => h(NTag, { type: priorityTagType(row.priority) as any, size: 'small' }, { default: () => priorityLabel(row.priority) }) },

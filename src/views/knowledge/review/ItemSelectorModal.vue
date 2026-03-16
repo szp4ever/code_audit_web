@@ -676,8 +676,12 @@ const filterTags = ref<string[]>([])
 const filterCvssScoreRange = ref<[number, number]>([0, 10])
 const filterCvssScoreBands = ref<string[]>([])
 
-const sortBy = ref<'create_time' | 'update_time' | 'severity' | 'cvss_score' | 'title'>('create_time')
+const sortBy = ref<'create_time' | 'update_time' | 'severity' | 'cvss_score' | 'title' | 'relevance'>('create_time')
 const sortOrder = ref<'asc' | 'desc'>('desc')
+/** 清空搜索时恢复的排序状态 */
+const previousSortState = ref<{ sortBy: string; sortOrder: 'asc' | 'desc' }>({ sortBy: 'create_time', sortOrder: 'desc' })
+/** 上一次 debounce 执行时的搜索状态 */
+const prevSearchHadKeyword = ref(false)
 
 const itemList = ref<any[]>([])
 const allItemsForStats = ref<any[]>([])
@@ -933,13 +937,19 @@ const hasActiveFilters = computed(() => {
 		filterCvssScoreBands.value.length > 0
 })
 
-const sortOptions = computed(() => [
-	{ label: '按创建时间', value: 'create_time' },
-	{ label: '按更新时间', value: 'update_time' },
-	{ label: '按风险等级', value: 'severity' },
-	{ label: '按CVSS评分', value: 'cvss_score' },
-	{ label: '按标题', value: 'title' },
-])
+const sortOptions = computed(() => {
+	const base = [
+		{ label: '按创建时间', value: 'create_time' },
+		{ label: '按更新时间', value: 'update_time' },
+		{ label: '按风险等级', value: 'severity' },
+		{ label: '按CVSS评分', value: 'cvss_score' },
+		{ label: '按标题', value: 'title' },
+	]
+	if (searchKeyword.value.trim()) {
+		return [{ label: '按相关程度', value: 'relevance' }, ...base]
+	}
+	return base
+})
 
 function getSortPlaceholder(): string {
 	const currentOption = sortOptions.value.find(opt => opt.value === sortBy.value)
@@ -966,6 +976,20 @@ function handleSearch() {
 	}
 	isSearching.value = true
 	searchDebounceTimer = setTimeout(() => {
+		const wasSearching = prevSearchHadKeyword.value
+		const isSearchingNow = !!searchKeyword.value.trim()
+		if (!wasSearching && isSearchingNow) {
+			previousSortState.value = { sortBy: sortBy.value, sortOrder: sortOrder.value }
+			sortBy.value = 'relevance' as any
+			sortOrder.value = 'desc'
+		} else if (wasSearching && !isSearchingNow) {
+			sortBy.value = previousSortState.value.sortBy as any
+			sortOrder.value = previousSortState.value.sortOrder
+		} else if (wasSearching && isSearchingNow && sortBy.value !== 'relevance') {
+			sortBy.value = 'relevance' as any
+			sortOrder.value = 'desc'
+		}
+		prevSearchHadKeyword.value = isSearchingNow
 		pagination.page = 1
 		fetchItems()
 		isSearching.value = false
@@ -1005,7 +1029,7 @@ async function fetchItems() {
 			vulnerabilityTypes: filterVulnerabilityTypes.value.length > 0 ? filterVulnerabilityTypes.value : undefined,
 			statuses: filterStatuses.value.length > 0 ? filterStatuses.value : undefined,
 			tags: filterTags.value.length > 0 ? filterTags.value : undefined,
-			orderBy: sortBy.value,
+			orderBy: sortBy.value === 'relevance' ? 'create_time' : sortBy.value,
 			order: sortOrder.value,
 			pageNum: pagination.page,
 			pageSize: pagination.pageSize,
@@ -1356,6 +1380,7 @@ watch(() => props.show, async (newVal) => {
 			}
 		}
 		searchKeyword.value = ''
+		prevSearchHadKeyword.value = false
 		showDetailDrawer.value = false
 		filterSeverities.value = []
 		filterLanguages.value = []

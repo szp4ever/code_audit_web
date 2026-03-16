@@ -318,6 +318,8 @@ const batchEditField = ref<string | null>(null)
 const batchEditValue = ref<any>(null)
 const sortBy = ref<string>('title')
 const sortOrder = ref<'asc' | 'desc'>('asc')
+/** 清空搜索时恢复的排序状态 */
+const previousSortState = ref<{ sortBy: string; sortOrder: 'asc' | 'desc' }>({ sortBy: 'title', sortOrder: 'asc' })
 
 const pagination = reactive({
 	page: 1,
@@ -616,13 +618,19 @@ const sortOptions = computed(() => {
 	return options
 })
 
-watch(() => searchKeyword.value, (newKeyword) => {
-	if (newKeyword.trim() && sortBy.value !== 'relevance') {
+watch(() => searchKeyword.value, (newKeyword, oldKeyword) => {
+	const wasSearching = !!(oldKeyword || '').trim()
+	const isSearching = !!newKeyword.trim()
+	if (!wasSearching && isSearching) {
+		previousSortState.value = { sortBy: sortBy.value, sortOrder: sortOrder.value }
 		sortBy.value = 'relevance'
 		sortOrder.value = 'desc'
-	} else if (!newKeyword.trim() && sortBy.value === 'relevance') {
-		sortBy.value = 'title'
-		sortOrder.value = 'asc'
+	} else if (wasSearching && !isSearching) {
+		sortBy.value = previousSortState.value.sortBy
+		sortOrder.value = previousSortState.value.sortOrder
+	} else if (wasSearching && isSearching && sortBy.value !== 'relevance') {
+		sortBy.value = 'relevance'
+		sortOrder.value = 'desc'
 	}
 	pagination.page = 1
 })

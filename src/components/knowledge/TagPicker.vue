@@ -127,6 +127,9 @@
 								</n-checkbox>
 							</n-space>
 						</n-checkbox-group>
+						<n-checkbox v-model:checked="showSelectedTags" class="type-checkbox" style="margin-left: 16px;">
+							<span class="type-label">显示已选</span>
+						</n-checkbox>
 					</div>
 					
 					<div class="sort-group">
@@ -417,6 +420,7 @@ const creatingTag = ref(false);
 const showSelectedDetailModal = ref(false);
 const selectedDetailSearchKeyword = ref('');
 const selectedTagTypes = ref<string[]>(['system', 'user']);
+const showSelectedTags = ref(true); // 是否显示已选标签，默认勾选
 const sortBy = ref<string>('relevance');
 const compactThreshold = 5;
 const maxDisplayTags = 50; // 最多显示50个标签，超出部分需要滚动查看
@@ -545,6 +549,7 @@ function openPicker() {
 	searchKeyword.value = '';
 	newTagName.value = '';
 	selectedTagTypes.value = ['system', 'user'];
+	showSelectedTags.value = true;
 	sortBy.value = 'name';
 	showModal.value = true;
 }
@@ -552,8 +557,8 @@ function openPicker() {
 // 过滤系统标签（带搜索和筛选）
 const filteredSystemTags = computed(() => {
 	let tags = props.systemTags.filter(tag => {
-		// 筛选：只显示未选中的标签
-		if (isTagSelected(tag)) return false;
+		// 筛选：未勾选「显示已选」时隐藏已选标签
+		if (!showSelectedTags.value && isTagSelected(tag)) return false;
 		
 		// 类型筛选
 		if (!selectedTagTypes.value.includes('system')) return false;
@@ -582,8 +587,8 @@ const filteredSystemTags = computed(() => {
 // 过滤用户标签（带搜索和筛选）
 const filteredUserTags = computed(() => {
 	let tags = props.userTags.filter(tag => {
-		// 筛选：只显示未选中的标签
-		if (isTagSelected(tag)) return false;
+		// 筛选：未勾选「显示已选」时隐藏已选标签
+		if (!showSelectedTags.value && isTagSelected(tag)) return false;
 		
 		// 类型筛选
 		if (!selectedTagTypes.value.includes('user')) return false;
@@ -811,6 +816,7 @@ function handleModalShowChange(show: boolean) {
 		showSelectedDetailModal.value = false;
 		selectedDetailSearchKeyword.value = '';
 		selectedTagTypes.value = ['system', 'user'];
+		showSelectedTags.value = true;
 		sortBy.value = 'name';
 		showAllSystemTags.value = false;
 		showAllUserTags.value = false;
@@ -1154,6 +1160,10 @@ const filteredSelectedItems = computed(() => {
 	display: flex;
 	flex-direction: column;
 	gap: 4px;
+}
+
+.tag-card.is-selected .tag-card-content {
+	padding-right: 28px; /* 为右侧勾选图标留出空间，避免与「我的」/「系统」徽章重叠 */
 }
 
 .tag-name-row {

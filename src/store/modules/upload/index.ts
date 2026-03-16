@@ -1,395 +1,513 @@
 import { defineStore } from 'pinia'
-import { defaultState, getLocalState, setLocalState, type UploadTask, type UploadState } from './helper'
+import { ref, computed } from 'vue'
 
-export const useUploadStore = defineStore('upload-store', {
-	state: (): UploadState => getLocalState(),
+/**
+ * 上传任务状态
+ */
+export type TaskStatus =
+  | 'pending'
+  | 'uploading'
+  | 'processing'
+  | 'completed'
+  | 'error'
+  | 'paused'
+  | 'cancelled'
 
-	getters: {
-		activeTasks(state: UploadState): UploadTask[] {
-			return state.tasks.filter(task => 
-				task.status === 'uploading' || task.status === 'processing' || task.status === 'waiting'
-				|| task.status === 'parsing' || task.status === 'chunking' || task.status === 'matching'
-				|| task.status === 'creating_items' || task.status === 'vectorizing'
-				|| task.status === 'user_review_matching' || task.status === 'user_review_items'
-			)
-		},
-		uploadingTasks(state: UploadState): UploadTask[] {
-			return state.tasks.filter(task => 
-				task.status === 'uploading' || task.status === 'waiting'
-			)
-		},
-		processingTasks(state: UploadState): UploadTask[] {
-			return state.tasks.filter(task => 
-				task.status === 'processing' || task.status === 'parsing' 
-				|| task.status === 'chunking' || task.status === 'matching'
-				|| task.status === 'creating_items' || task.status === 'vectorizing'
-			)
-		},
-		pendingReviewTasks(state: UploadState): UploadTask[] {
-			return state.tasks.filter(task => 
-				task.status === 'user_review_matching' || task.status === 'user_review_items'
-			)
-		},
-		successTasks(state: UploadState): UploadTask[] {
-			return state.tasks.filter(task => 
-				task.status === 'success' || task.status === 'completed'
-			)
-		},
-		errorTasks(state: UploadState): UploadTask[] {
-			return state.tasks.filter(task => 
-				task.status === 'error' || task.status === 'failed' || task.status === 'cancelled'
-			)
-		},
-		waitingTasks(state: UploadState): UploadTask[] {
-			return state.tasks.filter(task => task.status === 'waiting')
-		},
-		activeTaskCount(): number {
-			return this.activeTasks.length
-		},
-		pendingReviewCount(): number {
-			return this.pendingReviewTasks.length
-		},
-		getTaskById(state: UploadState) {
-			return (id: string) => state.tasks.find(task => task.id === id)
-		},
-		getKnowledgeBaseName(state: UploadState) {
-			return (kid: string) => state.knowledgeBaseMap.get(kid) || ''
-		},
-		applyFilters(): (tasks: UploadTask[]) => UploadTask[] {
-			const filters = this.filters
-			return (tasks: UploadTask[]): UploadTask[] => {
-				if (!Array.isArray(tasks)) {
-					return []
-				}
-				let filtered = [...tasks]
-				
-				// 状态筛选
-				if (filters.status !== 'all') {
-					filtered = filtered.filter(task => {
-						switch (filters.status) {
-							case 'active':
-								return task.status === 'uploading' || task.status === 'processing' || task.status === 'waiting'
-									|| task.status === 'parsing' || task.status === 'chunking' || task.status === 'matching'
-									|| task.status === 'creating_items' || task.status === 'vectorizing'
-							case 'pending':
-								return task.status === 'user_review_matching' || task.status === 'user_review_items'
-							case 'completed':
-								return task.status === 'success' || task.status === 'completed'
-							case 'failed':
-								return task.status === 'error' || task.status === 'failed' || task.status === 'cancelled'
-							default:
-								return true
-						}
-					})
-				}
-				
-				// 时间筛选
-				if (filters.time !== 'all') {
-					const now = Date.now()
-					const timeRanges: Record<string, number> = {
-						today: 24 * 60 * 60 * 1000,
-						week: 7 * 24 * 60 * 60 * 1000,
-						month: 30 * 24 * 60 * 60 * 1000,
-					}
-					const range = timeRanges[filters.time] || 0
-					const cutoff = now - range
-					filtered = filtered.filter(task => task.createdAt >= cutoff)
-				}
-				
-				// 文件名搜索
-				if (filters.searchKeyword && filters.searchKeyword.trim()) {
-					const keyword = filters.searchKeyword.toLowerCase().trim()
-					filtered = filtered.filter(task => 
-						task.fileName && task.fileName.toLowerCase().includes(keyword)
-					)
-				}
-				
-				return filtered
-			}
-		},
-		groupedTasksByKnowledgeBase(): Map<string, UploadTask[]> {
-			const grouped = new Map<string, UploadTask[]>()
-			if (!Array.isArray(this.tasks)) {
-				return grouped
-			}
-			const filters = this.filters
-			let tasks = [...this.tasks]
-			
-			// 状态筛选
-			if (filters.status !== 'all') {
-				tasks = tasks.filter(task => {
-					switch (filters.status) {
-						case 'active':
-							return task.status === 'uploading' || task.status === 'processing' || task.status === 'waiting'
-								|| task.status === 'parsing' || task.status === 'chunking' || task.status === 'matching'
-								|| task.status === 'creating_items' || task.status === 'vectorizing'
-						case 'pending':
-							return task.status === 'user_review_matching' || task.status === 'user_review_items'
-						case 'completed':
-							return task.status === 'success' || task.status === 'completed'
-						case 'failed':
-							return task.status === 'error' || task.status === 'failed' || task.status === 'cancelled'
-						default:
-							return true
-					}
-				})
-			}
-			
-			// 时间筛选
-			if (filters.time !== 'all') {
-				const now = Date.now()
-				const timeRanges: Record<string, number> = {
-					today: 24 * 60 * 60 * 1000,
-					week: 7 * 24 * 60 * 60 * 1000,
-					month: 30 * 24 * 60 * 60 * 1000,
-				}
-				const range = timeRanges[filters.time] || 0
-				const cutoff = now - range
-				tasks = tasks.filter(task => task.createdAt >= cutoff)
-			}
-			
-			// 文件名搜索
-			if (filters.searchKeyword && filters.searchKeyword.trim()) {
-				const keyword = filters.searchKeyword.toLowerCase().trim()
-				tasks = tasks.filter(task => 
-					task.fileName && task.fileName.toLowerCase().includes(keyword)
-				)
-			}
-			
-			tasks.forEach(task => {
-				const kid = task.kid || '__UNKNOWN__'
-				if (!grouped.has(kid)) {
-					grouped.set(kid, [])
-				}
-				grouped.get(kid)!.push(task)
-			})
-			
-			return grouped
-		},
-		groupStats() {
-			return (kid: string) => {
-				if (!Array.isArray(this.tasks)) {
-					return { total: 0, active: 0, completed: 0, failed: 0, pending: 0 }
-				}
-				const filters = this.filters
-				let tasks = this.tasks.filter(t => (t.kid || '__UNKNOWN__') === kid)
-				
-				// 状态筛选
-				if (filters.status !== 'all') {
-					tasks = tasks.filter(task => {
-						switch (filters.status) {
-							case 'active':
-								return task.status === 'uploading' || task.status === 'processing' || task.status === 'waiting'
-									|| task.status === 'parsing' || task.status === 'chunking' || task.status === 'matching'
-									|| task.status === 'creating_items' || task.status === 'vectorizing'
-							case 'pending':
-								return task.status === 'user_review_matching' || task.status === 'user_review_items'
-							case 'completed':
-								return task.status === 'success' || task.status === 'completed'
-							case 'failed':
-								return task.status === 'error' || task.status === 'failed' || task.status === 'cancelled'
-							default:
-								return true
-						}
-					})
-				}
-				
-				// 时间筛选
-				if (filters.time !== 'all') {
-					const now = Date.now()
-					const timeRanges: Record<string, number> = {
-						today: 24 * 60 * 60 * 1000,
-						week: 7 * 24 * 60 * 60 * 1000,
-						month: 30 * 24 * 60 * 60 * 1000,
-					}
-					const range = timeRanges[filters.time] || 0
-					const cutoff = now - range
-					tasks = tasks.filter(task => task.createdAt >= cutoff)
-				}
-				
-				// 文件名搜索
-				if (filters.searchKeyword && filters.searchKeyword.trim()) {
-					const keyword = filters.searchKeyword.toLowerCase().trim()
-					tasks = tasks.filter(task => 
-						task.fileName && task.fileName.toLowerCase().includes(keyword)
-					)
-				}
-				
-				const isActiveTask = (task: UploadTask) => 
-					task.status === 'uploading' || task.status === 'processing' || task.status === 'waiting'
-					|| task.status === 'parsing' || task.status === 'chunking' || task.status === 'matching'
-					|| task.status === 'creating_items' || task.status === 'vectorizing'
-					|| task.status === 'user_review_matching' || task.status === 'user_review_items'
-				
-				const isCompletedTask = (task: UploadTask) => 
-					task.status === 'success' || task.status === 'completed'
-				
-				const isFailedTask = (task: UploadTask) => 
-					task.status === 'error' || task.status === 'failed' || task.status === 'cancelled'
-				
-				const isPendingReviewTask = (task: UploadTask) => 
-					task.status === 'user_review_matching' || task.status === 'user_review_items'
-				
-				return {
-					total: tasks.length,
-					active: tasks.filter(isActiveTask).length,
-					completed: tasks.filter(isCompletedTask).length,
-					failed: tasks.filter(isFailedTask).length,
-					pending: tasks.filter(isPendingReviewTask).length,
-				}
-			}
-		},
-	},
+/**
+ * 处理子阶段
+ */
+export type ProcessingStage = 'parsing' | 'chunking' | 'vectorizing'
 
-	actions: {
-		addTask(task: Omit<UploadTask, 'id' | 'createdAt' | 'updatedAt' | 'retryCount' | 'progress' | 'uploadedBytes'>): string {
-			const id = `upload_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`
-			const newTask: UploadTask = {
-				...task,
-				id,
-				createdAt: Date.now(),
-				updatedAt: Date.now(),
-				retryCount: 0,
-				progress: 0,
-				uploadedBytes: 0,
-				status: 'waiting',
-			}
-			this.tasks.unshift(newTask)
-			this.activeTaskIds.add(id)
-			this.recordState()
-			return id
-		},
+/**
+ * 上传任务
+ */
+export interface UploadTask {
+  id: string
+  fileName: string
+  fileSize: number
+  file?: File
+  status: TaskStatus
+  progress: number
+  kid: string
+  knowledgeBaseName?: string
+  uploadedBytes: number
+  uploadSpeed?: number
+  eta?: number
+  xhr?: XMLHttpRequest
+  chunkSize?: number
+  totalChunks?: number
+  completedChunks?: number[]
+  processingStage?: ProcessingStage
+  attachId?: number
+  docId?: string
+  processId?: string
+  error?: string
+  retryCount: number
+  createdAt: number
+  updatedAt: number
+  completedAt?: number
+}
 
-		updateTask(id: string, updates: Partial<UploadTask>) {
-			const index = this.tasks.findIndex(task => task.id === id)
-			if (index !== -1) {
-				this.tasks[index] = {
-					...this.tasks[index],
-					...updates,
-					updatedAt: Date.now(),
-				}
-				this.recordState()
-			}
-		},
+/**
+ * 上传设置
+ */
+export interface UploadSettings {
+  maxConcurrent: number
+  autoRetry: boolean
+  maxRetryCount: number
+  chunkedUpload: boolean
+  chunkSize: number
+  enableNotification: boolean
+  autoOpenDrawer: boolean
+}
 
-		removeTask(id: string) {
-			const index = this.tasks.findIndex(task => task.id === id)
-			if (index !== -1) {
-				this.tasks.splice(index, 1)
-				this.activeTaskIds.delete(id)
-				this.recordState()
-			}
-		},
+const STORAGE_KEY = 'uploadTasks'
+const SETTINGS_KEY = 'uploadSettings'
+const TASK_EXPIRY_TIME = 24 * 60 * 60 * 1000
 
-		removeTasksByDocId(docId: string, kid?: string) {
-			const tasksToRemove = this.tasks.filter(task => 
-				task.docId === docId && (!kid || task.kid === kid)
-			)
-			tasksToRemove.forEach(task => {
-				this.removeTask(task.id)
-			})
-			return tasksToRemove.length
-		},
+const defaultSettings: UploadSettings = {
+  maxConcurrent: 3,
+  autoRetry: true,
+  maxRetryCount: 3,
+  chunkedUpload: false,
+  chunkSize: 2 * 1024 * 1024,
+  enableNotification: true,
+  autoOpenDrawer: true,
+}
 
-		removeTasksByFileName(fileName: string, kid?: string) {
-			const tasksToRemove = this.tasks.filter(task => 
-				task.fileName === fileName && (!kid || task.kid === kid)
-			)
-			tasksToRemove.forEach(task => {
-				this.removeTask(task.id)
-			})
-			return tasksToRemove.length
-		},
+export const useUploadStore = defineStore('upload', () => {
+  const tasks = ref<Map<string, UploadTask>>(new Map())
+  const settings = ref<UploadSettings>({ ...defaultSettings })
+  const drawerVisible = ref(false)
+  const activeFilter = ref<'all' | 'active' | 'completed' | 'error'>('all')
 
-		clearCompletedTasks() {
-			this.tasks = this.tasks.filter(task => 
-				task.status !== 'success' && task.status !== 'completed'
-			)
-			this.recordState()
-		},
+  const filters = ref<{
+    status: 'all' | 'active' | 'pending' | 'completed' | 'failed'
+    time: 'all' | 'today' | 'week' | 'month'
+    searchKeyword: string
+  }>({
+    status: 'all',
+    time: 'all',
+    searchKeyword: '',
+  })
 
-		clearErrorTasks() {
-			this.tasks = this.tasks.filter(task => 
-				task.status !== 'error' && task.status !== 'failed' && task.status !== 'cancelled'
-			)
-			this.recordState()
-		},
+  // 未读完成的任务ID集合（用于角标提醒）
+  const unreadCompletedTaskIds = ref<Set<string>>(new Set())
 
-		cancelTask(id: string) {
-			const task = this.getTaskById(id)
-			if (task && task.xhr) {
-				task.xhr.abort()
-			}
-			//取消就是删除：直接移除任务，不再保留在"已失败"列表中
-			//注意：后端删除逻辑由调用方（如handleRemove）负责执行
-			this.removeTask(id)
-		},
+  function setFilters(updates: Partial<{ status: string; time: string; searchKeyword: string }>) {
+    if (updates.status !== undefined) filters.value.status = updates.status as any
+    if (updates.time !== undefined) filters.value.time = updates.time as any
+    if (updates.searchKeyword !== undefined) filters.value.searchKeyword = updates.searchKeyword
+  }
 
-		retryTask(id: string) {
-			const task = this.getTaskById(id)
-			if (task) {
-				this.updateTask(id, {
-					status: 'waiting',
-					progress: 0,
-					uploadedBytes: 0,
-					error: undefined,
-					retryCount: task.retryCount + 1,
-					xhr: undefined,
-				})
-				this.activeTaskIds.add(id)
-			}
-		},
+  function clearFilters() {
+    filters.value = { status: 'all', time: 'all', searchKeyword: '' }
+  }
 
-		updateSettings(settings: Partial<UploadState['settings']>) {
-			this.settings = { ...this.settings, ...settings }
-			this.recordState()
-		},
+  /**
+   * 将所有已完成的任务标记为已读（用户打开传输列表时调用）
+   */
+  function markAllCompletedAsRead(): void {
+    unreadCompletedTaskIds.value.clear()
+  }
 
-		recordState() {
-			setLocalState({
-				tasks: this.tasks,
-				activeTaskIds: this.activeTaskIds,
-				settings: this.settings,
-				knowledgeBaseFilter: this.knowledgeBaseFilter,
-				knowledgeBaseMap: this.knowledgeBaseMap,
-				filters: this.filters,
-			})
-		},
+  const taskList = computed(() => Array.from(tasks.value.values()))
 
-		restoreTasks() {
-			const state = getLocalState()
-			this.tasks = state.tasks
-			this.activeTaskIds = state.activeTaskIds
-			this.settings = state.settings
-			this.knowledgeBaseFilter = state.knowledgeBaseFilter || []
-			this.filters = state.filters || defaultState().filters
-			if (state.knowledgeBaseMap && typeof state.knowledgeBaseMap === 'object' && !(state.knowledgeBaseMap instanceof Map)) {
-				this.knowledgeBaseMap = new Map(Object.entries(state.knowledgeBaseMap))
-			} else if (state.knowledgeBaseMap instanceof Map) {
-				this.knowledgeBaseMap = state.knowledgeBaseMap
-			} else {
-				this.knowledgeBaseMap = new Map()
-			}
-		},
+  const groupedByKid = computed(() => {
+    const groups = new Map<string, UploadTask[]>()
+    tasks.value.forEach((task) => {
+      const list = groups.get(task.kid) || []
+      list.push(task)
+      groups.set(task.kid, list)
+    })
+    return groups
+  })
 
-		setKnowledgeBaseFilter(kids: string[]) {
-			this.knowledgeBaseFilter = kids
-		},
+  const pendingTasks = computed(() =>
+    taskList.value.filter(t => t.status === 'pending')
+  )
 
-		setKnowledgeBaseMap(map: Map<string, string>) {
-			this.knowledgeBaseMap = map
-		},
-		setFilters(filters: Partial<UploadState['filters']>) {
-			this.filters = { ...this.filters, ...filters }
-			this.recordState()
-		},
-		clearFilters() {
-			this.filters = {
-				status: 'all',
-				time: 'all',
-				searchKeyword: '',
-			}
-			this.recordState()
-		},
-	},
+  const uploadingTasks = computed(() =>
+    taskList.value.filter(t => t.status === 'uploading')
+  )
+
+  const processingTasks = computed(() =>
+    taskList.value.filter(t => t.status === 'processing')
+  )
+
+  const activeTasks = computed(() =>
+    taskList.value.filter(t => t.status === 'uploading' || t.status === 'processing')
+  )
+
+  const completedTasks = computed(() =>
+    taskList.value.filter(t => t.status === 'completed')
+  )
+
+  // 未读完成的任务计数
+  const unreadCompletedCount = computed(() =>
+    completedTasks.value.filter(t => unreadCompletedTaskIds.value.has(t.id)).length
+  )
+
+  const failedTasks = computed(() =>
+    taskList.value.filter(t => t.status === 'error')
+  )
+
+  /** 待审阅任务（当前 store 无此状态，预留兼容） */
+  const pendingReviewTasks = computed(() => [])
+
+  const activeCount = computed(() => activeTasks.value.length)
+
+  const hasActiveTasks = computed(() => activeCount.value > 0)
+
+  const currentConcurrent = computed(() => uploadingTasks.value.length)
+
+  const hasAvailableSlot = computed(() =>
+    currentConcurrent.value < settings.value.maxConcurrent
+  )
+
+  const stats = computed(() => ({
+    total: tasks.value.size,
+    pending: pendingTasks.value.length,
+    uploading: uploadingTasks.value.length,
+    processing: processingTasks.value.length,
+    active: activeTasks.value.length,
+    completed: completedTasks.value.length,
+    error: failedTasks.value.length,
+  }))
+
+  function generateTaskId(): string {
+    return `task_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`
+  }
+
+  function createTask(file: File, kid: string, knowledgeBaseName?: string): UploadTask {
+    const now = Date.now()
+    const task: UploadTask = {
+      id: generateTaskId(),
+      fileName: file.name,
+      fileSize: file.size,
+      file,
+      status: 'pending',
+      progress: 0,
+      kid,
+      knowledgeBaseName,
+      uploadedBytes: 0,
+      retryCount: 0,
+      createdAt: now,
+      updatedAt: now,
+    }
+    tasks.value.set(task.id, task)
+    saveToStorage()
+    return task
+  }
+
+  function createTasks(files: File[], kid: string, knowledgeBaseName?: string): UploadTask[] {
+    return files.map(file => createTask(file, kid, knowledgeBaseName))
+  }
+
+  function updateTask(taskId: string, updates: Partial<UploadTask>): UploadTask | null {
+    const task = tasks.value.get(taskId)
+    if (!task) return null
+
+    Object.assign(task, updates, { updatedAt: Date.now() })
+    tasks.value.set(taskId, task)
+    saveToStorage()
+    return task
+  }
+
+  function startUpload(taskId: string, xhr?: XMLHttpRequest): boolean {
+    return !!updateTask(taskId, { status: 'uploading', xhr })
+  }
+
+  function updateProgress(
+    taskId: string,
+    progress: number,
+    uploadedBytes: number,
+    uploadSpeed?: number,
+    eta?: number
+  ): boolean {
+    return !!updateTask(taskId, { progress, uploadedBytes, uploadSpeed, eta })
+  }
+
+  function startProcessing(taskId: string, attachId: number, docId: string, processId?: string): boolean {
+    return !!updateTask(taskId, {
+      status: 'processing',
+      attachId,
+      docId,
+      processId,
+      processingStage: 'parsing',
+      progress: 100,
+    })
+  }
+
+  function updateProcessingStage(taskId: string, stage: ProcessingStage, progress?: number): boolean {
+    return !!updateTask(taskId, { 
+      processingStage: stage,
+      ...(progress !== undefined && { processingProgress: progress })
+    })
+  }
+
+  function completeTask(taskId: string): boolean {
+    const result = updateTask(taskId, {
+      status: 'completed',
+      progress: 100,
+      completedAt: Date.now(),
+    })
+    if (result) {
+      // 将新完成的任务标记为未读
+      unreadCompletedTaskIds.value.add(taskId)
+    }
+    return !!result
+  }
+
+  function setTaskError(taskId: string, error: string): boolean {
+    return !!updateTask(taskId, { status: 'error', error })
+  }
+
+  function pauseTask(taskId: string): boolean {
+    const task = tasks.value.get(taskId)
+    if (!task || task.status !== 'uploading') return false
+
+    task.xhr?.abort()
+    return !!updateTask(taskId, { status: 'paused' })
+  }
+
+  function resumeTask(taskId: string): boolean {
+    const task = tasks.value.get(taskId)
+    if (!task || task.status !== 'paused') return false
+
+    return !!updateTask(taskId, { status: 'pending' })
+  }
+
+  function cancelTask(taskId: string): boolean {
+    const task = tasks.value.get(taskId)
+    if (!task) return false
+
+    if (task.status === 'uploading' && task.xhr) {
+      task.xhr.abort()
+    }
+
+    return !!updateTask(taskId, { status: 'cancelled' })
+  }
+
+  function retryTask(taskId: string): boolean {
+    const task = tasks.value.get(taskId)
+    if (!task) return false
+
+    return !!updateTask(taskId, {
+      status: 'pending',
+      progress: 0,
+      uploadedBytes: 0,
+      error: undefined,
+      retryCount: task.retryCount + 1,
+      xhr: undefined,
+    })
+  }
+
+  function removeTask(taskId: string): boolean {
+    const result = tasks.value.delete(taskId)
+    if (result) saveToStorage()
+    return result
+  }
+
+  function clearCompleted(): void {
+    taskList.value
+      .filter(t => t.status === 'completed')
+      .forEach(t => tasks.value.delete(t.id))
+    saveToStorage()
+  }
+
+  function clearFailed(): void {
+    taskList.value
+      .filter(t => t.status === 'error' || t.status === 'cancelled')
+      .forEach(t => tasks.value.delete(t.id))
+    saveToStorage()
+  }
+
+  function clearAll(): void {
+    tasks.value.clear()
+    saveToStorage()
+  }
+
+  function getTask(taskId: string): UploadTask | undefined {
+    return tasks.value.get(taskId)
+  }
+
+  function updateSettings(newSettings: Partial<UploadSettings>): void {
+    Object.assign(settings.value, newSettings)
+    localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings.value))
+  }
+
+  function resetSettings(): void {
+    settings.value = { ...defaultSettings }
+    localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings.value))
+  }
+
+  function loadSettings(): void {
+    try {
+      const stored = localStorage.getItem(SETTINGS_KEY)
+      if (stored) {
+        const parsed = JSON.parse(stored)
+        settings.value = { ...defaultSettings, ...parsed }
+      }
+    } catch {
+      settings.value = { ...defaultSettings }
+    }
+  }
+
+  function saveToStorage(): void {
+    try {
+      const storageData = {
+        tasks: taskList.value.map(task => ({
+          ...task,
+          file: undefined,
+          xhr: undefined,
+        })),
+        lastUpdated: Date.now(),
+      }
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(storageData))
+    } catch {
+      // 忽略存储错误
+    }
+  }
+
+  function restoreFromStorage(): void {
+    try {
+      const stored = localStorage.getItem(STORAGE_KEY)
+      if (!stored) return
+
+      const data = JSON.parse(stored)
+      if (!data.tasks || !Array.isArray(data.tasks)) return
+
+      if (data.lastUpdated && Date.now() - data.lastUpdated > TASK_EXPIRY_TIME) {
+        localStorage.removeItem(STORAGE_KEY)
+        return
+      }
+
+      data.tasks.forEach((taskData: any) => {
+        if (taskData.status === 'completed' || taskData.status === 'cancelled') {
+          return
+        }
+
+        const task: UploadTask = {
+          ...taskData,
+          status: taskData.status === 'uploading' ? 'pending' : taskData.status,
+          progress: taskData.status === 'uploading' ? 0 : taskData.progress,
+          uploadedBytes: 0,
+          xhr: undefined,
+          retryCount: taskData.retryCount || 0,
+          updatedAt: Date.now(),
+        }
+        tasks.value.set(task.id, task)
+      })
+    } catch {
+      // 忽略恢复错误
+    }
+  }
+
+  function cleanupExpiredTasks(): void {
+    const now = Date.now()
+    taskList.value.forEach(task => {
+      if (task.status === 'completed' || task.status === 'error' || task.status === 'cancelled') {
+        if (task.completedAt && now - task.completedAt > TASK_EXPIRY_TIME) {
+          tasks.value.delete(task.id)
+        }
+      }
+    })
+    saveToStorage()
+  }
+
+  function groupStats(kid: string): { total: number; active: number; completed: number; failed: number; pending: number } {
+    const list = groupedByKid.value.get(kid) || []
+    return {
+      total: list.length,
+      active: list.filter(t => t.status === 'uploading' || t.status === 'processing').length,
+      completed: list.filter(t => t.status === 'completed').length,
+      failed: list.filter(t => t.status === 'error').length,
+      pending: list.filter(t => t.status === 'pending').length,
+    }
+  }
+
+  function getKnowledgeBaseName(kid: string): string {
+    const first = (groupedByKid.value.get(kid) || [])[0]
+    return first?.knowledgeBaseName || ''
+  }
+
+  function openDrawer(): void {
+    drawerVisible.value = true
+  }
+
+  function closeDrawer(): void {
+    drawerVisible.value = false
+  }
+
+  function toggleDrawer(): void {
+    drawerVisible.value = !drawerVisible.value
+  }
+
+  loadSettings()
+  restoreFromStorage()
+  cleanupExpiredTasks()
+
+  return {
+    tasks,
+    settings,
+    drawerVisible,
+    activeFilter,
+    filters,
+    setFilters,
+    clearFilters,
+    taskList,
+    groupedByKid,
+    groupedTasksByKnowledgeBase: groupedByKid,
+    pendingTasks,
+    waitingTasks: pendingTasks,
+    pendingReviewTasks,
+    uploadingTasks,
+    processingTasks,
+    activeTasks,
+    completedTasks,
+    failedTasks,
+    successTasks: completedTasks,
+    errorTasks: failedTasks,
+    activeCount,
+    activeTaskCount: activeCount,
+    unreadCompletedCount,
+    markAllCompletedAsRead,
+    hasActiveTasks,
+    currentConcurrent,
+    hasAvailableSlot,
+    stats,
+    createTask,
+    createTasks,
+    updateTask,
+    startUpload,
+    updateProgress,
+    startProcessing,
+    updateProcessingStage,
+    completeTask,
+    setTaskError,
+    pauseTask,
+    resumeTask,
+    cancelTask,
+    retryTask,
+    removeTask,
+    clearCompleted,
+    clearFailed,
+    clearCompletedTasks: clearCompleted,
+    clearErrorTasks: clearFailed,
+    clearAll,
+    getTask,
+    groupStats,
+    getKnowledgeBaseName,
+    updateSettings,
+    resetSettings,
+    loadSettings,
+    saveToStorage,
+    restoreFromStorage,
+    restoreTasks: restoreFromStorage,
+    cleanupExpiredTasks,
+    openDrawer,
+    closeDrawer,
+    toggleDrawer,
+  }
 })
